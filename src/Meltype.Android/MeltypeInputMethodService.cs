@@ -285,7 +285,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         button.Touch += (_, e) =>
         {
             if (e.Event?.Action == MotionEventActions.Down)
-                button.PerformHapticFeedback(FeedbackConstants.KeyboardPress);
+                button.PerformHapticFeedback(FeedbackConstants.VirtualKey);
             e.Handled = false;
         };
         button.Click += (_, _) => action();
@@ -498,7 +498,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void PasteClipboard()
     {
-        var clipboard = GetSystemService(ClipboardService) as ClipboardManager;
+        var clipboard = GetSystemService(ClipboardService) as global::Android.Content.ClipboardManager;
         var clip = clipboard?.PrimaryClip;
         if (clip is null || clip.ItemCount == 0)
             return;
