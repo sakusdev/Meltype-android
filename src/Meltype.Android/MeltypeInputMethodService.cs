@@ -59,8 +59,6 @@ public sealed class MeltypeInputMethodService : InputMethodService
         }
     }
 
-    // Neutral Material 3 surfaces tuned toward Gboard's compact dark/light
-    // keyboard contrast while keeping Meltype's own accent color.
     private Color KeyboardBackground => Color.ParseColor(IsDarkTheme ? "#1B1A1D" : "#F3F0F4");
     private Color KeyBackground => Color.ParseColor(IsDarkTheme ? "#343237" : "#FFFFFF");
     private Color SpecialKeyBackground => Color.ParseColor(IsDarkTheme ? "#464349" : "#E2DDE4");
@@ -133,7 +131,6 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Orientation = Orientation.Vertical
         };
         root.SetBackgroundColor(KeyboardBackground);
-        // Leave the system gesture/IME-switcher strip unobstructed.
         root.SetPadding(Dp(5), Dp(2), Dp(7), Dp(20));
 
         var candidateScroll = new HorizontalScrollView(context)
@@ -154,10 +151,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
             ViewGroup.LayoutParams.MatchParent,
             Dp(46)));
 
-        // Gboard-style number hints above the first letter row.
         root.AddView(CreateCharacterRow("qwertyuiop", "1234567890"));
 
-        // Ten positions on the second row, including the Japanese long-vowel key.
         var second = new LinearLayout(context) { Orientation = Orientation.Horizontal };
         second.SetPadding(Dp(7), 0, Dp(7), 0);
         foreach (var c in "asdfghjkl")
@@ -173,7 +168,6 @@ public sealed class MeltypeInputMethodService : InputMethodService
         third.AddView(CreateKey("⌫", HandleBackspace, KeyKind.Special), WeightedKeyParams(1.32f));
         root.AddView(third);
 
-        // Bottom row mirrors the density and ordering of a modern Gboard layout.
         var bottom = new LinearLayout(context) { Orientation = Orientation.Horizontal };
         _modeButton = CreateKey("あa1", ToggleDirectMode, KeyKind.Special);
         bottom.AddView(_modeButton, WeightedKeyParams(1.28f));
@@ -182,8 +176,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _spaceButton = CreateKey("日本語", HandleSpace, KeyKind.Normal);
         bottom.AddView(_spaceButton, WeightedKeyParams(2.45f));
         bottom.AddView(CreateKey("。", () => HandleCharacter('。'), KeyKind.Special), WeightedKeyParams(.82f));
-        bottom.AddView(CreateKey("◀", () => MoveCursor(Keycode.DpadLeft), KeyKind.Special), WeightedKeyParams(.82f));
-        bottom.AddView(CreateKey("▶", () => MoveCursor(Keycode.DpadRight), KeyKind.Special), WeightedKeyParams(.82f));
+        bottom.AddView(CreateKey("◀", () => MoveCursor(global::Android.Views.Keycode.DpadLeft), KeyKind.Special), WeightedKeyParams(.82f));
+        bottom.AddView(CreateKey("▶", () => MoveCursor(global::Android.Views.Keycode.DpadRight), KeyKind.Special), WeightedKeyParams(.82f));
         _enterButton = CreateKey("↵", HandleEnter, KeyKind.Accent);
         bottom.AddView(_enterButton, WeightedKeyParams(1.18f));
         root.AddView(bottom);
@@ -288,9 +282,6 @@ public sealed class MeltypeInputMethodService : InputMethodService
             0);
         ApplyKeyAppearance(button, kind);
 
-        // Fire haptics on touch-down rather than release so the keyboard feels
-        // immediate, like Gboard. View haptics also respect the user's Android
-        // system haptic-feedback setting and require no vibration permission.
         button.Touch += (_, e) =>
         {
             if (e.Event?.Action == MotionEventActions.Down)
@@ -400,7 +391,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         SendKeyChar('\n');
     }
 
-    private void MoveCursor(Keycode keycode)
+    private void MoveCursor(global::Android.Views.Keycode keycode)
     {
         var connection = CurrentInputConnection;
         if (connection is null)
