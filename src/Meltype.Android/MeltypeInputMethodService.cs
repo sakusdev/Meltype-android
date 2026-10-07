@@ -4,6 +4,7 @@ using Android.App;
 using Android.Content;
 using Android.InputMethodServices;
 using Android.Text;
+using Android.Util;
 using Android.Views;
 using Android.Views.InputMethods;
 using Android.Widget;
@@ -22,6 +23,7 @@ namespace Meltype.Android;
 [MetaData("android.view.im", Resource = "@xml/method")]
 public sealed class MeltypeInputMethodService : InputMethodService
 {
+    private const string LogTag = "MeltypeIME";
     private const int VkBack = 0x08;
     private const int VkReturn = 0x0D;
     private const int VkSpace = 0x20;
@@ -59,35 +61,61 @@ public sealed class MeltypeInputMethodService : InputMethodService
         }
     }
 
-    private Color KeyboardBackground => Color.ParseColor(IsDarkTheme ? "#1B1A1D" : "#F3F0F4");
-    private Color KeyBackground => Color.ParseColor(IsDarkTheme ? "#343237" : "#FFFFFF");
-    private Color SpecialKeyBackground => Color.ParseColor(IsDarkTheme ? "#464349" : "#E2DDE4");
-    private Color Primary => Color.ParseColor(IsDarkTheme ? "#CBB8F8" : "#6750A4");
-    private Color OnPrimary => Color.ParseColor(IsDarkTheme ? "#35205E" : "#FFFFFF");
-    private Color PrimaryContainer => Color.ParseColor(IsDarkTheme ? "#4D3A72" : "#EADDFF");
-    private Color OnPrimaryContainer => Color.ParseColor(IsDarkTheme ? "#F0E5FF" : "#21005D");
-    private Color KeyForeground => Color.ParseColor(IsDarkTheme ? "#F1EDF3" : "#1D1B20");
-    private Color SecondaryForeground => Color.ParseColor(IsDarkTheme ? "#BBB5BF" : "#5F5964");
-    private Color CandidateBackground => Color.ParseColor(IsDarkTheme ? "#29272C" : "#ECE7EE");
+    // Gboard-inspired neutral surfaces while keeping the app on a Material 3 theme.
+    private Color KeyboardBackground => Color.ParseColor(IsDarkTheme ? "#171815" : "#F2F2F2");
+    private Color KeyBackground => Color.ParseColor(IsDarkTheme ? "#2B2D29" : "#FFFFFF");
+    private Color SpecialKeyBackground => Color.ParseColor(IsDarkTheme ? "#3A3B38" : "#D9D9D9");
+    private Color Primary => Color.ParseColor(IsDarkTheme ? "#BBA1FF" : "#6750A4");
+    private Color OnPrimary => Color.ParseColor(IsDarkTheme ? "#2E2143" : "#FFFFFF");
+    private Color PrimaryContainer => Color.ParseColor(IsDarkTheme ? "#514371" : "#EADDFF");
+    private Color OnPrimaryContainer => Color.ParseColor(IsDarkTheme ? "#F1E9FF" : "#21005D");
+    private Color KeyForeground => Color.ParseColor(IsDarkTheme ? "#F1F1F1" : "#202124");
+    private Color SecondaryForeground => Color.ParseColor(IsDarkTheme ? "#B6B7B3" : "#5F6368");
+    private Color CandidateBackground => Color.ParseColor(IsDarkTheme ? "#232420" : "#ECECEC");
 
     public override void OnCreate()
     {
         base.OnCreate();
-        var baseDirectory = FilesDir?.AbsolutePath ?? CacheDir?.AbsolutePath ?? ".";
-        var profileDirectory = Path.Combine(baseDirectory, "mozc-profile");
-        var dataFile = ExtractMozcData(baseDirectory);
-        _nativeMozc = dataFile is null
-            ? null
-            : MozcNativeConverter.TryCreate(profileDirectory, dataFile);
-        _converter = (IKanjiConverter?)_nativeMozc ?? new AndroidFallbackConverter();
+
+        try
+        {
+            var baseDirectory = FilesDir?.AbsolutePath ?? CacheDir?.AbsolutePath ?? ".";
+            var profileDirectory = Path.Combine(baseDirectory, "mozc-profile");
+            var dataFile = ExtractMozcData(baseDirectory);
+            _nativeMozc = dataFile is null
+                ? null
+                : MozcNativeConverter.TryCreate(profileDirectory, dataFile);
+            _converter = (IKanjiConverter?)_nativeMozc ?? new AndroidFallbackConverter();
+        }
+        catch (Exception ex)
+        {
+            Warn("OnCreate/Mozc", ex);
+            _nativeMozc = null;
+            _converter = new AndroidFallbackConverter();
+        }
     }
 
     public override void OnDestroy()
     {
-        _nativeMozc?.Dispose();
+        try
+        {
+            _nativeMozc?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Warn("OnDestroy/Mozc", ex);
+        }
+
         _nativeMozc = null;
         _converter = null;
+        _session = null;
+        _candidateStrip = null;
+        _modeButton = null;
+        _shiftButton = null;
+        _spaceButton = null;
+        _enterButton = null;
         _uiContext = null;
+
         base.OnDestroy();
     }
 
@@ -95,33 +123,86 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         base.OnStartInput(attribute, restarting);
 
-        var converter = _converter ?? new AndroidFallbackConverter();
-        Func<string, IReadOnlyList<string>>? moreCandidates =
-            _nativeMozc is null ? null : _nativeMozc.Candidates;
+        try
+        {
+            var converter = _converter ?? new AndroidFallbackConverter();
+            Func<string, IReadOnlyList<string>>? moreCandidates =
+                _nativeMozc is null ? null : _nativeMozc.Candidates;
 
-        _session = MeltypeSession.CreateDefault(
-            converter,
-            moreCandidates,
-            wordChecker: null);
-        _session.Direct = _direct;
-        _hasComposingText = false;
+            _session = MeltypeSession.CreateDefault(
+                converter,
+                moreCandidates,
+                wordChecker: null);
+            _session.Direct = _direct;
+            _hasComposingText = false;
 
-        UpdateEnterKey(attribute);
-        ShowIdleTopBar();
+            UpdateEnterKey(attribute);
+            ShowIdleTopBar();
+        }
+        catch (Exception ex)
+        {
+            Warn("OnStartInput", ex);
+            _session = MeltypeSession.CreateDefault(
+                new AndroidFallbackConverter(),
+                moreCandidates: null,
+                wordChecker: null);
+            _session.Direct = _direct;
+            _hasComposingText = false;
+        }
     }
 
     public override void OnFinishInput()
     {
-        if (_session is { IsComposing: true })
-            Apply(_session.CommitPending());
-
-        _session = null;
-        _hasComposingText = false;
-        ShowIdleTopBar();
-        base.OnFinishInput();
+        // InputConnection can already be invalid by the time Android calls this.
+        // Never allow cleanup / pending composition to crash the IME process.
+        try
+        {
+            if (_session is { IsComposing: true } session)
+                Apply(session.CommitPending(), updateUi: false);
+        }
+        catch (Exception ex)
+        {
+            Warn("OnFinishInput", ex);
+        }
+        finally
+        {
+            _session = null;
+            _hasComposingText = false;
+            base.OnFinishInput();
+        }
     }
 
     public override View? OnCreateInputView()
+    {
+        try
+        {
+            return BuildInputView();
+        }
+        catch (Exception ex)
+        {
+            Warn("OnCreateInputView", ex);
+
+            // Last-resort minimal view. Keeping an IME visible is preferable to
+            // Android falling back to another keyboard after a view exception.
+            var fallback = new LinearLayout(this)
+            {
+                Orientation = Orientation.Vertical
+            };
+            fallback.SetBackgroundColor(KeyboardBackground);
+            var label = new TextView(this)
+            {
+                Text = "Meltype",
+                Gravity = GravityFlags.Center,
+                TextSize = 16
+            };
+            label.SetTextColor(KeyForeground);
+            fallback.AddView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MatchParent, Dp(48)));
+            return fallback;
+        }
+    }
+
+    private View BuildInputView()
     {
         var context = UiContext;
         _letterButtons.Clear();
@@ -131,7 +212,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Orientation = Orientation.Vertical
         };
         root.SetBackgroundColor(KeyboardBackground);
-        root.SetPadding(Dp(5), Dp(2), Dp(7), Dp(20));
+        root.SetPadding(Dp(4), Dp(1), Dp(4), Dp(18));
 
         var candidateScroll = new HorizontalScrollView(context)
         {
@@ -143,18 +224,17 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Orientation = Orientation.Horizontal
         };
         _candidateStrip.SetGravity(GravityFlags.CenterVertical);
-        _candidateStrip.SetPadding(Dp(4), Dp(2), Dp(4), Dp(2));
+        _candidateStrip.SetPadding(Dp(2), Dp(1), Dp(2), Dp(1));
         candidateScroll.AddView(_candidateStrip, new ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.WrapContent,
+            ViewGroup.LayoutParams.MatchParent,
             ViewGroup.LayoutParams.MatchParent));
         root.AddView(candidateScroll, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
-            Dp(46)));
+            Dp(44)));
 
         root.AddView(CreateCharacterRow("qwertyuiop", "1234567890"));
 
         var second = new LinearLayout(context) { Orientation = Orientation.Horizontal };
-        second.SetPadding(Dp(7), 0, Dp(7), 0);
         foreach (var c in "asdfghjkl")
             second.AddView(CreateLetterKey(c), WeightedKeyParams());
         second.AddView(CreateKey("ー", () => HandleCharacter('ー'), KeyKind.Normal), WeightedKeyParams());
@@ -162,30 +242,49 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         var third = new LinearLayout(context) { Orientation = Orientation.Horizontal };
         _shiftButton = CreateKey("⇧", ToggleShift, KeyKind.Special);
-        third.AddView(_shiftButton, WeightedKeyParams(1.32f));
+        third.AddView(_shiftButton, WeightedKeyParams(1.34f));
         foreach (var c in "zxcvbnm")
             third.AddView(CreateLetterKey(c), WeightedKeyParams());
-        third.AddView(CreateKey("⌫", HandleBackspace, KeyKind.Special), WeightedKeyParams(1.32f));
+        third.AddView(CreateKey("⌫", HandleBackspace, KeyKind.Special), WeightedKeyParams(1.34f));
         root.AddView(third);
 
         var bottom = new LinearLayout(context) { Orientation = Orientation.Horizontal };
-        _modeButton = CreateKey("あa1", ToggleDirectMode, KeyKind.Special);
-        bottom.AddView(_modeButton, WeightedKeyParams(1.28f));
-        bottom.AddView(CreateKey("、", () => HandleCharacter('、'), KeyKind.Special), WeightedKeyParams(.82f));
-        bottom.AddView(CreateKey("☺", ShowEmojiBar, KeyKind.Special), WeightedKeyParams(.9f));
+
+        _modeButton = CreateKey("あa1", ToggleDirectMode, KeyKind.PillSpecial);
+        bottom.AddView(_modeButton, WeightedKeyParams(1.45f));
+
+        bottom.AddView(
+            CreateKey("、", () => HandleCharacter('、'), KeyKind.Special),
+            WeightedKeyParams(.92f));
+
+        bottom.AddView(
+            CreateKey("☺", ShowEmojiBar, KeyKind.Special),
+            WeightedKeyParams(1.0f));
+
         _spaceButton = CreateKey("日本語", HandleSpace, KeyKind.Normal);
-        bottom.AddView(_spaceButton, WeightedKeyParams(2.45f));
-        bottom.AddView(CreateKey("。", () => HandleCharacter('。'), KeyKind.Special), WeightedKeyParams(.82f));
-        bottom.AddView(CreateKey("◀", () => MoveCursor(global::Android.Views.Keycode.DpadLeft), KeyKind.Special), WeightedKeyParams(.82f));
-        bottom.AddView(CreateKey("▶", () => MoveCursor(global::Android.Views.Keycode.DpadRight), KeyKind.Special), WeightedKeyParams(.82f));
+        bottom.AddView(_spaceButton, WeightedKeyParams(2.15f));
+
+        bottom.AddView(
+            CreateKey("。", () => HandleCharacter('。'), KeyKind.Special),
+            WeightedKeyParams(.96f));
+
+        bottom.AddView(
+            CreateKey("◀", () => MoveCursor(global::Android.Views.Keycode.DpadLeft), KeyKind.Special),
+            WeightedKeyParams(.96f));
+
+        bottom.AddView(
+            CreateKey("▶", () => MoveCursor(global::Android.Views.Keycode.DpadRight), KeyKind.Special),
+            WeightedKeyParams(.96f));
+
         _enterButton = CreateKey("↵", HandleEnter, KeyKind.Accent);
-        bottom.AddView(_enterButton, WeightedKeyParams(1.18f));
+        bottom.AddView(_enterButton, WeightedKeyParams(1.45f));
         root.AddView(bottom);
 
         UpdateModeLabel();
         RefreshShiftVisual();
         UpdateEnterKey(CurrentInputEditorInfo);
         ShowIdleTopBar();
+
         return root;
     }
 
@@ -197,12 +296,14 @@ public sealed class MeltypeInputMethodService : InputMethodService
             using var input = Assets?.Open("mozc.data");
             if (input is null)
                 return null;
+
             using var output = File.Create(path);
             input.CopyTo(output);
             return path;
         }
-        catch
+        catch (Exception ex)
         {
+            Warn("ExtractMozcData", ex);
             return null;
         }
     }
@@ -210,11 +311,13 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private LinearLayout CreateCharacterRow(string keys, string? hints = null)
     {
         var row = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
+
         for (var i = 0; i < keys.Length; i++)
         {
             var hint = hints is not null && i < hints.Length ? hints[i].ToString() : null;
             row.AddView(CreateLetterKey(keys[i], hint), WeightedKeyParams());
         }
+
         return row;
     }
 
@@ -226,7 +329,12 @@ public sealed class MeltypeInputMethodService : InputMethodService
         if (hint is null)
             return button;
 
-        var frame = new FrameLayout(UiContext);
+        var frame = new FrameLayout(UiContext)
+        {
+            Focusable = false,
+            FocusableInTouchMode = false
+        };
+
         frame.AddView(button, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             ViewGroup.LayoutParams.MatchParent));
@@ -234,17 +342,19 @@ public sealed class MeltypeInputMethodService : InputMethodService
         var hintView = new TextView(UiContext)
         {
             Text = hint,
-            TextSize = 9,
+            TextSize = 8,
             Gravity = GravityFlags.Center,
             Clickable = false,
-            Focusable = false
+            Focusable = false,
+            FocusableInTouchMode = false
         };
         hintView.SetTextColor(SecondaryForeground);
-        var hintParams = new FrameLayout.LayoutParams(Dp(18), Dp(18))
+
+        var hintParams = new FrameLayout.LayoutParams(Dp(16), Dp(16))
         {
             Gravity = GravityFlags.Top | GravityFlags.Right
         };
-        hintParams.SetMargins(0, Dp(1), Dp(2), 0);
+        hintParams.SetMargins(0, 0, Dp(2), 0);
         frame.AddView(hintView, hintParams);
         return frame;
     }
@@ -253,6 +363,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         Normal,
         Special,
+        PillSpecial,
         Accent,
         Candidate,
         CandidateSelected,
@@ -268,27 +379,42 @@ public sealed class MeltypeInputMethodService : InputMethodService
             {
                 KeyKind.Candidate or KeyKind.CandidateSelected => 15,
                 KeyKind.Toolbar => 20,
-                _ => 17
+                _ => 18
             },
             Gravity = GravityFlags.Center,
             Elevation = 0,
-            HapticFeedbackEnabled = true
+            HapticFeedbackEnabled = true,
+            Focusable = false,
+            FocusableInTouchMode = false
         };
+
         button.SetAllCaps(false);
+        button.SetMinWidth(0);
+        button.SetMinHeight(0);
         button.SetPadding(
-            Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 12 : 3),
+            Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 10 : 2),
             0,
-            Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 12 : 3),
+            Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 10 : 2),
             0);
+
         ApplyKeyAppearance(button, kind);
 
         button.Touch += (_, e) =>
         {
-            if (e.Event?.Action == MotionEventActions.Down)
-                button.PerformHapticFeedback(FeedbackConstants.VirtualKey);
+            try
+            {
+                if (e.Event?.Action == MotionEventActions.Down)
+                    button.PerformHapticFeedback(FeedbackConstants.VirtualKey);
+            }
+            catch (Exception ex)
+            {
+                Warn("Haptic", ex);
+            }
+
             e.Handled = false;
         };
-        button.Click += (_, _) => action();
+
+        button.Click += (_, _) => SafeRun("KeyAction", action);
         return button;
     }
 
@@ -296,13 +422,14 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         var background = kind switch
         {
-            KeyKind.Special => SpecialKeyBackground,
+            KeyKind.Special or KeyKind.PillSpecial => SpecialKeyBackground,
             KeyKind.Accent => Primary,
             KeyKind.Candidate => CandidateBackground,
             KeyKind.CandidateSelected => PrimaryContainer,
             KeyKind.Toolbar => KeyboardBackground,
             _ => KeyBackground
         };
+
         var foreground = kind switch
         {
             KeyKind.Accent => OnPrimary,
@@ -314,9 +441,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
         button.SetTextColor(foreground);
         button.CornerRadius = Dp(kind switch
         {
-            KeyKind.Candidate or KeyKind.CandidateSelected => 20,
-            KeyKind.Toolbar => 22,
-            _ => 10
+            KeyKind.Candidate or KeyKind.CandidateSelected => 18,
+            KeyKind.PillSpecial or KeyKind.Accent => 22,
+            KeyKind.Toolbar => 20,
+            _ => 7
         });
         button.InsetTop = 0;
         button.InsetBottom = 0;
@@ -324,7 +452,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private LinearLayout.LayoutParams WeightedKeyParams(float weight = 1f)
     {
-        var p = new LinearLayout.LayoutParams(0, Dp(54), weight);
+        var p = new LinearLayout.LayoutParams(0, Dp(50), weight);
         p.SetMargins(Dp(2), Dp(3), Dp(2), Dp(3));
         return p;
     }
@@ -333,6 +461,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         var c = _shift ? char.ToUpperInvariant(raw) : raw;
         HandleCharacter(c);
+
         if (_shift)
         {
             _shift = false;
@@ -413,6 +542,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         var (before, after) = SurroundingText();
         var result = session.HandleKey(vk, ch, false, false, false, false, before, after);
         Apply(result);
+
         if (!result.Consumed)
             fallback();
     }
@@ -421,6 +551,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         _shift = !_shift;
         RefreshShiftVisual();
+
         if (!_hasComposingText)
             ShowIdleTopBar();
     }
@@ -444,6 +575,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Apply(session.CommitPending());
 
         _direct = !_direct;
+
         if (_session is not null)
             _session.Direct = _direct;
 
@@ -479,6 +611,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             7 => ("⇤", "前へ"),
             _ => ("↵", "改行")
         };
+
         _enterButton.Text = label;
         _enterButton.ContentDescription = description;
     }
@@ -498,8 +631,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void PasteClipboard()
     {
-        var clipboard = GetSystemService(ClipboardService) as global::Android.Content.ClipboardManager;
+        var clipboard = GetSystemService(ClipboardService)
+            as global::Android.Content.ClipboardManager;
         var clip = clipboard?.PrimaryClip;
+
         if (clip is null || clip.ItemCount == 0)
             return;
 
@@ -510,23 +645,29 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void ShowEmojiBar()
     {
-        if (_candidateStrip is null)
+        var strip = _candidateStrip;
+        if (strip is null)
             return;
 
-        _candidateStrip.RemoveAllViews();
+        strip.RemoveAllViews();
+
         foreach (var emoji in EmojiShortlist)
         {
             var captured = emoji;
-            var button = CreateKey(captured, () =>
-            {
-                CurrentInputConnection?.CommitText(captured, 1);
-                ShowIdleTopBar();
-            }, KeyKind.Candidate);
+            var button = CreateKey(
+                captured,
+                () =>
+                {
+                    CurrentInputConnection?.CommitText(captured, 1);
+                    ShowIdleTopBar();
+                },
+                KeyKind.Candidate);
+
             var parameters = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WrapContent,
-                Dp(40));
+                Dp(38));
             parameters.SetMargins(Dp(2), Dp(1), Dp(2), Dp(1));
-            _candidateStrip.AddView(button, parameters);
+            strip.AddView(button, parameters);
         }
     }
 
@@ -545,101 +686,151 @@ public sealed class MeltypeInputMethodService : InputMethodService
                 connection.GetTextBeforeCursor(20, (GetTextFlags)0),
                 connection.GetTextAfterCursor(20, (GetTextFlags)0));
         }
-        catch
+        catch (Exception ex)
         {
+            Warn("SurroundingText", ex);
             return (null, null);
         }
     }
 
-    private void Apply(SessionResult? result)
+    private void Apply(SessionResult? result, bool updateUi = true)
     {
         if (result is null)
             return;
 
-        var connection = CurrentInputConnection;
-        if (connection is null)
-            return;
+        try
+        {
+            var connection = CurrentInputConnection;
+            if (connection is null)
+                return;
 
-        foreach (var edit in result.Commits)
-        {
-            if (edit.DeleteBefore > 0)
-                connection.DeleteSurroundingText(edit.DeleteBefore, 0);
-            if (!string.IsNullOrEmpty(edit.Text))
-                connection.CommitText(edit.Text, 1);
-            _hasComposingText = false;
-        }
+            foreach (var edit in result.Commits)
+            {
+                if (edit.DeleteBefore > 0)
+                    connection.DeleteSurroundingText(edit.DeleteBefore, 0);
 
-        if (result.View is { } view)
-        {
-            connection.SetComposingText(view.Text, 1);
-            _hasComposingText = view.Text.Length > 0;
-            ShowCandidates(view);
+                if (!string.IsNullOrEmpty(edit.Text))
+                    connection.CommitText(edit.Text, 1);
+
+                _hasComposingText = false;
+            }
+
+            if (result.View is { } view)
+            {
+                connection.SetComposingText(view.Text, 1);
+                _hasComposingText = view.Text.Length > 0;
+
+                if (updateUi)
+                    ShowCandidates(view);
+            }
+            else
+            {
+                connection.FinishComposingText();
+                _hasComposingText = false;
+
+                if (updateUi)
+                    ShowIdleTopBar();
+            }
         }
-        else
+        catch (Exception ex)
         {
-            connection.FinishComposingText();
+            Warn("Apply", ex);
             _hasComposingText = false;
-            ShowIdleTopBar();
         }
     }
 
     private void ShowCandidates(CompositionView view)
     {
-        if (_candidateStrip is null)
-            return;
-
-        _candidateStrip.RemoveAllViews();
-        if (view.Converting && view.Candidates.Count > 0)
+        try
         {
-            for (var i = 0; i < view.Candidates.Count; i++)
+            var strip = _candidateStrip;
+            if (strip is null)
+                return;
+
+            strip.RemoveAllViews();
+
+            if (view.Converting && view.Candidates.Count > 0)
             {
-                var index = i;
-                var kind = i == view.SelectedIndex ? KeyKind.CandidateSelected : KeyKind.Candidate;
-                var button = CreateKey(view.Candidates[i], () =>
+                for (var i = 0; i < view.Candidates.Count; i++)
                 {
-                    if (_session is not null)
-                        Apply(_session.SelectCandidate(index));
-                }, kind);
+                    var index = i;
+                    var kind = i == view.SelectedIndex
+                        ? KeyKind.CandidateSelected
+                        : KeyKind.Candidate;
 
-                var parameters = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WrapContent,
-                    Dp(40));
-                parameters.SetMargins(Dp(2), Dp(1), Dp(2), Dp(1));
-                _candidateStrip.AddView(button, parameters);
+                    var button = CreateKey(
+                        view.Candidates[i],
+                        () =>
+                        {
+                            if (_session is not null)
+                                Apply(_session.SelectCandidate(index));
+                        },
+                        kind);
+
+                    var parameters = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WrapContent,
+                        Dp(38));
+                    parameters.SetMargins(Dp(2), Dp(1), Dp(2), Dp(1));
+                    strip.AddView(button, parameters);
+                }
+
+                return;
             }
-            return;
-        }
 
-        AddCandidateHint(!string.IsNullOrWhiteSpace(view.Hint) ? view.Hint : view.Text);
+            AddCandidateHint(
+                !string.IsNullOrWhiteSpace(view.Hint)
+                    ? view.Hint
+                    : view.Text);
+        }
+        catch (Exception ex)
+        {
+            Warn("ShowCandidates", ex);
+        }
     }
 
     private void ShowIdleTopBar()
     {
-        if (_candidateStrip is null)
-            return;
+        try
+        {
+            var strip = _candidateStrip;
+            if (strip is null)
+                return;
 
-        _candidateStrip.RemoveAllViews();
-        AddToolbarKey("▦", ShowInputMethodPicker, "入力方法を切り替える");
-        AddToolbarKey("☺", ShowEmojiBar, "絵文字");
-        AddToolbarKey("▣", PasteClipboard, "クリップボードから貼り付ける");
-        AddToolbarKey("⚙", OpenSettings, "Meltype 設定");
+            strip.RemoveAllViews();
+
+            AddToolbarKey("▦", ShowInputMethodPicker, "入力方法を切り替える");
+            AddToolbarKey("☺", ShowEmojiBar, "絵文字");
+            AddToolbarKey("あ", ToggleDirectMode, "入力モードを切り替える");
+            AddToolbarKey("▣", PasteClipboard, "クリップボードから貼り付ける");
+            AddToolbarKey("⚙", OpenSettings, "Meltype 設定");
+        }
+        catch (Exception ex)
+        {
+            Warn("ShowIdleTopBar", ex);
+        }
     }
 
     private void AddToolbarKey(string label, Action action, string description)
     {
-        if (_candidateStrip is null)
+        var strip = _candidateStrip;
+        if (strip is null)
             return;
 
         var button = CreateKey(label, action, KeyKind.Toolbar);
         button.ContentDescription = description;
-        var parameters = new LinearLayout.LayoutParams(Dp(54), Dp(40));
-        parameters.SetMargins(Dp(3), Dp(1), Dp(3), Dp(1));
-        _candidateStrip.AddView(button, parameters);
+
+        var parameters = new LinearLayout.LayoutParams(
+            0,
+            Dp(40),
+            1f);
+        parameters.SetMargins(Dp(2), 0, Dp(2), 0);
+        strip.AddView(button, parameters);
     }
 
     private void AddCandidateHint(string? text)
     {
-        if (_candidateStrip is null || string.IsNullOrWhiteSpace(text))
+        var strip = _candidateStrip;
+        if (strip is null || string.IsNullOrWhiteSpace(text))
             return;
 
         var hint = new TextView(UiContext)
@@ -647,14 +838,35 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Text = text,
             TextSize = 14,
             Gravity = GravityFlags.CenterVertical,
-            Ellipsize = TextUtils.TruncateAt.End
+            Ellipsize = TextUtils.TruncateAt.End,
+            Focusable = false,
+            FocusableInTouchMode = false
         };
         hint.SetMaxLines(1);
         hint.SetTextColor(SecondaryForeground);
         hint.SetPadding(Dp(10), 0, Dp(10), 0);
-        _candidateStrip.AddView(hint, new LinearLayout.LayoutParams(
+
+        strip.AddView(hint, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WrapContent,
             ViewGroup.LayoutParams.MatchParent));
+    }
+
+    private void SafeRun(string operation, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            Warn(operation, ex);
+            _hasComposingText = false;
+        }
+    }
+
+    private static void Warn(string operation, Exception ex)
+    {
+        Log.Warn(LogTag, $"{operation}: {ex}");
     }
 
     private int Dp(int value) =>
