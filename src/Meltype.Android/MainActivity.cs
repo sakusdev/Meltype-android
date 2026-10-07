@@ -7,6 +7,7 @@ using Android.Provider;
 using Android.Views;
 using Android.Views.InputMethods;
 using Android.Widget;
+using Google.Android.Material.Button;
 
 namespace Meltype.Android;
 
@@ -14,50 +15,58 @@ namespace Meltype.Android;
     Label = "@string/app_name",
     MainLauncher = true,
     Exported = true,
-    Theme = "@android:style/Theme.Material.Light.NoActionBar")]
+    Theme = "@style/MeltypeTheme")]
 public sealed class MainActivity : Activity
 {
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
 
-        var padding = Dp(24);
+        var scroll = new ScrollView(this) { FillViewport = true };
         var root = new LinearLayout(this)
         {
-            Orientation = Orientation.Vertical
+            Orientation = Orientation.Vertical,
+            Gravity = GravityFlags.CenterHorizontal
         };
-        root.SetPadding(padding, padding, padding, padding);
+        root.SetPadding(Dp(24), Dp(36), Dp(24), Dp(32));
+        scroll.AddView(root, new ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MatchParent,
+            ViewGroup.LayoutParams.WrapContent));
 
         var title = new TextView(this)
         {
-            Text = "Meltype for Android",
-            TextSize = 28
+            Text = "Meltype",
+            TextSize = 32,
+            Gravity = GravityFlags.CenterHorizontal
         };
-        root.AddView(title);
+        root.AddView(title, MatchWidth());
 
-        var description = new TextView(this)
+        var subtitle = new TextView(this)
         {
-            Text = "Meltype の Android IME プレビュー版です。\n\n1. 入力方法の設定で Meltype を有効にする\n2. 入力方法を選択して Meltype に切り替える",
-            TextSize = 16
+            Text = "Android IME · Native Mozc",
+            TextSize = 15,
+            Gravity = GravityFlags.CenterHorizontal
         };
-        var descriptionParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MatchParent,
-            ViewGroup.LayoutParams.WrapContent);
-        descriptionParams.SetMargins(0, Dp(16), 0, Dp(24));
-        root.AddView(description, descriptionParams);
+        var subtitleParams = MatchWidth();
+        subtitleParams.SetMargins(0, Dp(4), 0, Dp(32));
+        root.AddView(subtitle, subtitleParams);
 
-        var enable = new Button(this)
+        root.AddView(StepLabel("1", "Meltype を入力方法として有効にします"));
+        var enable = new MaterialButton(this)
         {
-            Text = "1. Meltype を有効にする"
+            Text = "入力方法の設定を開く"
         };
+        enable.SetAllCaps(false);
         enable.Click += (_, _) =>
             StartActivity(new Intent(Settings.ActionInputMethodSettings));
         root.AddView(enable, FullWidthButtonParams());
 
-        var choose = new Button(this)
+        root.AddView(StepLabel("2", "有効化したら現在のキーボードを Meltype に切り替えます"));
+        var choose = new MaterialButton(this)
         {
-            Text = "2. Meltype を選択する"
+            Text = "Meltype に切り替える"
         };
+        choose.SetAllCaps(false);
         choose.Click += (_, _) =>
         {
             var manager = GetSystemService(InputMethodService) as InputMethodManager;
@@ -67,26 +76,56 @@ public sealed class MainActivity : Activity
 
         var note = new TextView(this)
         {
-            Text = "現在は Android IME の基盤 + Meltype.Core 接続の初期実装です。漢字変換は Mozc ネイティブブリッジ追加前のため、読みをそのまま返します。",
+            Text = "Meltype.Core の英語 / 日本語判定と、arm64-v8a 向け Native Mozc 変換を利用します。",
             TextSize = 14
         };
-        var noteParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MatchParent,
-            ViewGroup.LayoutParams.WrapContent);
-        noteParams.SetMargins(0, Dp(24), 0, 0);
+        var noteParams = MatchWidth();
+        noteParams.SetMargins(Dp(4), Dp(28), Dp(4), 0);
         root.AddView(note, noteParams);
 
-        SetContentView(root);
+        SetContentView(scroll);
+    }
+
+    private LinearLayout StepLabel(string number, string text)
+    {
+        var row = new LinearLayout(this)
+        {
+            Orientation = Orientation.Horizontal,
+            Gravity = GravityFlags.CenterVertical
+        };
+        var badge = new TextView(this)
+        {
+            Text = number,
+            TextSize = 14,
+            Gravity = GravityFlags.Center
+        };
+        row.AddView(badge, new LinearLayout.LayoutParams(Dp(32), Dp(32)));
+
+        var label = new TextView(this)
+        {
+            Text = text,
+            TextSize = 15
+        };
+        var labelParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WrapContent, 1f);
+        labelParams.SetMargins(Dp(10), 0, 0, 0);
+        row.AddView(label, labelParams);
+
+        var parameters = MatchWidth();
+        parameters.SetMargins(0, Dp(12), 0, Dp(6));
+        row.LayoutParameters = parameters;
+        return row;
     }
 
     private LinearLayout.LayoutParams FullWidthButtonParams()
     {
-        var p = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MatchParent,
-            ViewGroup.LayoutParams.WrapContent);
-        p.SetMargins(0, Dp(6), 0, Dp(6));
+        var p = MatchWidth();
+        p.Height = Dp(52);
+        p.SetMargins(0, Dp(4), 0, Dp(12));
         return p;
     }
+
+    private static LinearLayout.LayoutParams MatchWidth() =>
+        new(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.WrapContent);
 
     private int Dp(int value) =>
         (int)(value * Resources!.DisplayMetrics!.Density + 0.5f);
