@@ -27,6 +27,11 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private const int VkSpace = 0x20;
     private const int ImeActionMask = 0x000000ff;
 
+    private static readonly string[] EmojiShortlist =
+    [
+        "😀", "😂", "🥹", "😍", "🤔", "👍", "🙏", "🔥", "✨", "❤️", "😭", "😎"
+    ];
+
     private readonly List<(MaterialButton Button, char Character)> _letterButtons = [];
 
     private MeltypeSession? _session;
@@ -36,6 +41,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private LinearLayout? _candidateStrip;
     private MaterialButton? _modeButton;
     private MaterialButton? _shiftButton;
+    private MaterialButton? _spaceButton;
     private MaterialButton? _enterButton;
     private bool _direct;
     private bool _shift;
@@ -53,18 +59,18 @@ public sealed class MeltypeInputMethodService : InputMethodService
         }
     }
 
-    // Material 3 baseline palette. The app itself is Theme.Material3; these
-    // explicit keyboard tokens keep key contrast stable inside the IME window.
-    private Color KeyboardBackground => Color.ParseColor(IsDarkTheme ? "#1D1B20" : "#F7F2FA");
-    private Color KeyBackground => Color.ParseColor(IsDarkTheme ? "#36343B" : "#FFFFFF");
-    private Color SpecialKeyBackground => Color.ParseColor(IsDarkTheme ? "#49454F" : "#E7E0EC");
-    private Color Primary => Color.ParseColor(IsDarkTheme ? "#D0BCFF" : "#6750A4");
-    private Color OnPrimary => Color.ParseColor(IsDarkTheme ? "#381E72" : "#FFFFFF");
-    private Color PrimaryContainer => Color.ParseColor(IsDarkTheme ? "#4F378B" : "#EADDFF");
-    private Color OnPrimaryContainer => Color.ParseColor(IsDarkTheme ? "#EADDFF" : "#21005D");
-    private Color KeyForeground => Color.ParseColor(IsDarkTheme ? "#E6E0E9" : "#1D1B20");
-    private Color SecondaryForeground => Color.ParseColor(IsDarkTheme ? "#CAC4D0" : "#49454F");
-    private Color CandidateBackground => Color.ParseColor(IsDarkTheme ? "#2B2930" : "#F0EAF2");
+    // Neutral Material 3 surfaces tuned toward Gboard's compact dark/light
+    // keyboard contrast while keeping Meltype's own accent color.
+    private Color KeyboardBackground => Color.ParseColor(IsDarkTheme ? "#1B1A1D" : "#F3F0F4");
+    private Color KeyBackground => Color.ParseColor(IsDarkTheme ? "#343237" : "#FFFFFF");
+    private Color SpecialKeyBackground => Color.ParseColor(IsDarkTheme ? "#464349" : "#E2DDE4");
+    private Color Primary => Color.ParseColor(IsDarkTheme ? "#CBB8F8" : "#6750A4");
+    private Color OnPrimary => Color.ParseColor(IsDarkTheme ? "#35205E" : "#FFFFFF");
+    private Color PrimaryContainer => Color.ParseColor(IsDarkTheme ? "#4D3A72" : "#EADDFF");
+    private Color OnPrimaryContainer => Color.ParseColor(IsDarkTheme ? "#F0E5FF" : "#21005D");
+    private Color KeyForeground => Color.ParseColor(IsDarkTheme ? "#F1EDF3" : "#1D1B20");
+    private Color SecondaryForeground => Color.ParseColor(IsDarkTheme ? "#BBB5BF" : "#5F5964");
+    private Color CandidateBackground => Color.ParseColor(IsDarkTheme ? "#29272C" : "#ECE7EE");
 
     public override void OnCreate()
     {
@@ -103,7 +109,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _hasComposingText = false;
 
         UpdateEnterKey(attribute);
-        ShowIdleCandidateBar();
+        ShowIdleTopBar();
     }
 
     public override void OnFinishInput()
@@ -113,7 +119,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         _session = null;
         _hasComposingText = false;
-        ShowIdleCandidateBar();
+        ShowIdleTopBar();
         base.OnFinishInput();
     }
 
@@ -127,8 +133,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Orientation = Orientation.Vertical
         };
         root.SetBackgroundColor(KeyboardBackground);
-        // Reserve space above Android's gesture bar / IME-switcher affordance.
-        root.SetPadding(Dp(5), Dp(3), Dp(7), Dp(22));
+        // Leave the system gesture/IME-switcher strip unobstructed.
+        root.SetPadding(Dp(5), Dp(2), Dp(7), Dp(20));
 
         var candidateScroll = new HorizontalScrollView(context)
         {
@@ -140,18 +146,23 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Orientation = Orientation.Horizontal
         };
         _candidateStrip.SetGravity(GravityFlags.CenterVertical);
-        _candidateStrip.SetPadding(Dp(5), Dp(3), Dp(5), Dp(3));
+        _candidateStrip.SetPadding(Dp(4), Dp(2), Dp(4), Dp(2));
         candidateScroll.AddView(_candidateStrip, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.WrapContent,
             ViewGroup.LayoutParams.MatchParent));
         root.AddView(candidateScroll, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
-            Dp(50)));
+            Dp(46)));
 
-        root.AddView(CreateCharacterRow("qwertyuiop"));
+        // Gboard-style number hints above the first letter row.
+        root.AddView(CreateCharacterRow("qwertyuiop", "1234567890"));
 
-        var second = CreateCharacterRow("asdfghjkl");
-        second.SetPadding(Dp(14), 0, Dp(14), 0);
+        // Ten positions on the second row, including the Japanese long-vowel key.
+        var second = new LinearLayout(context) { Orientation = Orientation.Horizontal };
+        second.SetPadding(Dp(7), 0, Dp(7), 0);
+        foreach (var c in "asdfghjkl")
+            second.AddView(CreateLetterKey(c), WeightedKeyParams());
+        second.AddView(CreateKey("ー", () => HandleCharacter('ー'), KeyKind.Normal), WeightedKeyParams());
         root.AddView(second);
 
         var third = new LinearLayout(context) { Orientation = Orientation.Horizontal };
@@ -162,21 +173,25 @@ public sealed class MeltypeInputMethodService : InputMethodService
         third.AddView(CreateKey("⌫", HandleBackspace, KeyKind.Special), WeightedKeyParams(1.32f));
         root.AddView(third);
 
+        // Bottom row mirrors the density and ordering of a modern Gboard layout.
         var bottom = new LinearLayout(context) { Orientation = Orientation.Horizontal };
-        _modeButton = CreateKey("あ", ToggleDirectMode, KeyKind.Special);
-        bottom.AddView(_modeButton, WeightedKeyParams(1.2f));
-        bottom.AddView(CreateKey("、", () => HandleCharacter('、'), KeyKind.Special), WeightedKeyParams(.92f));
-        bottom.AddView(CreateKey("ー", () => HandleCharacter('ー'), KeyKind.Special), WeightedKeyParams(.92f));
-        bottom.AddView(CreateKey("space", HandleSpace, KeyKind.Normal), WeightedKeyParams(3.55f));
-        bottom.AddView(CreateKey("。", () => HandleCharacter('。'), KeyKind.Special), WeightedKeyParams(.92f));
+        _modeButton = CreateKey("あa1", ToggleDirectMode, KeyKind.Special);
+        bottom.AddView(_modeButton, WeightedKeyParams(1.28f));
+        bottom.AddView(CreateKey("、", () => HandleCharacter('、'), KeyKind.Special), WeightedKeyParams(.82f));
+        bottom.AddView(CreateKey("☺", ShowEmojiBar, KeyKind.Special), WeightedKeyParams(.9f));
+        _spaceButton = CreateKey("日本語", HandleSpace, KeyKind.Normal);
+        bottom.AddView(_spaceButton, WeightedKeyParams(2.45f));
+        bottom.AddView(CreateKey("。", () => HandleCharacter('。'), KeyKind.Special), WeightedKeyParams(.82f));
+        bottom.AddView(CreateKey("◀", () => MoveCursor(Keycode.DpadLeft), KeyKind.Special), WeightedKeyParams(.82f));
+        bottom.AddView(CreateKey("▶", () => MoveCursor(Keycode.DpadRight), KeyKind.Special), WeightedKeyParams(.82f));
         _enterButton = CreateKey("↵", HandleEnter, KeyKind.Accent);
-        bottom.AddView(_enterButton, WeightedKeyParams(1.38f));
+        bottom.AddView(_enterButton, WeightedKeyParams(1.18f));
         root.AddView(bottom);
 
         UpdateModeLabel();
         RefreshShiftVisual();
         UpdateEnterKey(CurrentInputEditorInfo);
-        ShowIdleCandidateBar();
+        ShowIdleTopBar();
         return root;
     }
 
@@ -198,19 +213,46 @@ public sealed class MeltypeInputMethodService : InputMethodService
         }
     }
 
-    private LinearLayout CreateCharacterRow(string keys)
+    private LinearLayout CreateCharacterRow(string keys, string? hints = null)
     {
         var row = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
-        foreach (var c in keys)
-            row.AddView(CreateLetterKey(c), WeightedKeyParams());
+        for (var i = 0; i < keys.Length; i++)
+        {
+            var hint = hints is not null && i < hints.Length ? hints[i].ToString() : null;
+            row.AddView(CreateLetterKey(keys[i], hint), WeightedKeyParams());
+        }
         return row;
     }
 
-    private MaterialButton CreateLetterKey(char character)
+    private View CreateLetterKey(char character, string? hint = null)
     {
         var button = CreateKey(character.ToString(), () => HandleLetter(character));
         _letterButtons.Add((button, character));
-        return button;
+
+        if (hint is null)
+            return button;
+
+        var frame = new FrameLayout(UiContext);
+        frame.AddView(button, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MatchParent,
+            ViewGroup.LayoutParams.MatchParent));
+
+        var hintView = new TextView(UiContext)
+        {
+            Text = hint,
+            TextSize = 9,
+            Gravity = GravityFlags.Center,
+            Clickable = false,
+            Focusable = false
+        };
+        hintView.SetTextColor(SecondaryForeground);
+        var hintParams = new FrameLayout.LayoutParams(Dp(18), Dp(18))
+        {
+            Gravity = GravityFlags.Top | GravityFlags.Right
+        };
+        hintParams.SetMargins(0, Dp(1), Dp(2), 0);
+        frame.AddView(hintView, hintParams);
+        return frame;
     }
 
     private enum KeyKind
@@ -219,7 +261,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
         Special,
         Accent,
         Candidate,
-        CandidateSelected
+        CandidateSelected,
+        Toolbar
     }
 
     private MaterialButton CreateKey(string text, Action action, KeyKind kind = KeyKind.Normal)
@@ -227,14 +270,33 @@ public sealed class MeltypeInputMethodService : InputMethodService
         var button = new MaterialButton(UiContext)
         {
             Text = text,
-            TextSize = kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 15 : 17,
+            TextSize = kind switch
+            {
+                KeyKind.Candidate or KeyKind.CandidateSelected => 15,
+                KeyKind.Toolbar => 20,
+                _ => 17
+            },
             Gravity = GravityFlags.Center,
-            Elevation = 0
+            Elevation = 0,
+            HapticFeedbackEnabled = true
         };
         button.SetAllCaps(false);
-        button.SetPadding(Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 12 : 4), 0,
-            Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 12 : 4), 0);
+        button.SetPadding(
+            Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 12 : 3),
+            0,
+            Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 12 : 3),
+            0);
         ApplyKeyAppearance(button, kind);
+
+        // Fire haptics on touch-down rather than release so the keyboard feels
+        // immediate, like Gboard. View haptics also respect the user's Android
+        // system haptic-feedback setting and require no vibration permission.
+        button.Touch += (_, e) =>
+        {
+            if (e.Event?.Action == MotionEventActions.Down)
+                button.PerformHapticFeedback(FeedbackConstants.KeyboardPress);
+            e.Handled = false;
+        };
         button.Click += (_, _) => action();
         return button;
     }
@@ -247,6 +309,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             KeyKind.Accent => Primary,
             KeyKind.Candidate => CandidateBackground,
             KeyKind.CandidateSelected => PrimaryContainer,
+            KeyKind.Toolbar => KeyboardBackground,
             _ => KeyBackground
         };
         var foreground = kind switch
@@ -258,12 +321,19 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         button.BackgroundTintList = ColorStateList.ValueOf(background);
         button.SetTextColor(foreground);
-        button.CornerRadius = Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 20 : 12);
+        button.CornerRadius = Dp(kind switch
+        {
+            KeyKind.Candidate or KeyKind.CandidateSelected => 20,
+            KeyKind.Toolbar => 22,
+            _ => 10
+        });
+        button.InsetTop = 0;
+        button.InsetBottom = 0;
     }
 
     private LinearLayout.LayoutParams WeightedKeyParams(float weight = 1f)
     {
-        var p = new LinearLayout.LayoutParams(0, Dp(52), weight);
+        var p = new LinearLayout.LayoutParams(0, Dp(54), weight);
         p.SetMargins(Dp(2), Dp(3), Dp(2), Dp(3));
         return p;
     }
@@ -318,21 +388,26 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         var editor = CurrentInputEditorInfo;
 
-        // Custom editor actions are not dispatched by SendDefaultEditorAction.
         if (editor is not null && editor.ActionId > 0 && editor.ActionLabel is not null)
         {
             if (connection.PerformEditorAction((ImeAction)editor.ActionId))
                 return;
         }
 
-        // Let InputMethodService resolve Search/Send/Next/Done/etc and respect
-        // IME_FLAG_NO_ENTER_ACTION. This is the canonical Android IME path.
         if (SendDefaultEditorAction(true))
             return;
 
-        // For multiline / no-action editors, Android decides whether newline is
-        // committed as text or delivered as a soft-keyboard Enter event.
         SendKeyChar('\n');
+    }
+
+    private void MoveCursor(Keycode keycode)
+    {
+        var connection = CurrentInputConnection;
+        if (connection is null)
+            return;
+
+        connection.SendKeyEvent(new KeyEvent(KeyEventActions.Down, keycode));
+        connection.SendKeyEvent(new KeyEvent(KeyEventActions.Up, keycode));
     }
 
     private void HandleVirtualKey(int vk, char? ch, Action fallback)
@@ -356,7 +431,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _shift = !_shift;
         RefreshShiftVisual();
         if (!_hasComposingText)
-            ShowIdleCandidateBar();
+            ShowIdleTopBar();
     }
 
     private void RefreshShiftVisual()
@@ -382,16 +457,19 @@ public sealed class MeltypeInputMethodService : InputMethodService
             _session.Direct = _direct;
 
         UpdateModeLabel();
-        ShowIdleCandidateBar();
+        ShowIdleTopBar();
     }
 
     private void UpdateModeLabel()
     {
-        if (_modeButton is null)
-            return;
+        if (_modeButton is not null)
+        {
+            _modeButton.Text = _direct ? "ABC" : "あa1";
+            _modeButton.ContentDescription = _direct ? "英字直接入力" : "Meltype 日本語入力";
+        }
 
-        _modeButton.Text = _direct ? "ABC" : "あ";
-        _modeButton.ContentDescription = _direct ? "英字直接入力" : "Meltype 日本語入力";
+        if (_spaceButton is not null)
+            _spaceButton.Text = _direct ? "English" : "日本語";
     }
 
     private void UpdateEnterKey(EditorInfo? editor)
@@ -412,6 +490,53 @@ public sealed class MeltypeInputMethodService : InputMethodService
         };
         _enterButton.Text = label;
         _enterButton.ContentDescription = description;
+    }
+
+    private void ShowInputMethodPicker()
+    {
+        var manager = GetSystemService(InputMethodService) as InputMethodManager;
+        manager?.ShowInputMethodPicker();
+    }
+
+    private void OpenSettings()
+    {
+        var intent = new Intent(this, typeof(MainActivity));
+        intent.AddFlags(ActivityFlags.NewTask);
+        StartActivity(intent);
+    }
+
+    private void PasteClipboard()
+    {
+        var clipboard = GetSystemService(ClipboardService) as ClipboardManager;
+        var clip = clipboard?.PrimaryClip;
+        if (clip is null || clip.ItemCount == 0)
+            return;
+
+        var text = clip.GetItemAt(0)?.CoerceToText(this)?.ToString();
+        if (!string.IsNullOrEmpty(text))
+            CurrentInputConnection?.CommitText(text, 1);
+    }
+
+    private void ShowEmojiBar()
+    {
+        if (_candidateStrip is null)
+            return;
+
+        _candidateStrip.RemoveAllViews();
+        foreach (var emoji in EmojiShortlist)
+        {
+            var captured = emoji;
+            var button = CreateKey(captured, () =>
+            {
+                CurrentInputConnection?.CommitText(captured, 1);
+                ShowIdleTopBar();
+            }, KeyKind.Candidate);
+            var parameters = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WrapContent,
+                Dp(40));
+            parameters.SetMargins(Dp(2), Dp(1), Dp(2), Dp(1));
+            _candidateStrip.AddView(button, parameters);
+        }
     }
 
     private (string? Before, string? After) SurroundingText()
@@ -463,7 +588,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         {
             connection.FinishComposingText();
             _hasComposingText = false;
-            ShowIdleCandidateBar();
+            ShowIdleTopBar();
         }
     }
 
@@ -487,8 +612,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
                 var parameters = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WrapContent,
-                    Dp(42));
-                parameters.SetMargins(Dp(3), Dp(1), Dp(3), Dp(1));
+                    Dp(40));
+                parameters.SetMargins(Dp(2), Dp(1), Dp(2), Dp(1));
                 _candidateStrip.AddView(button, parameters);
             }
             return;
@@ -497,15 +622,28 @@ public sealed class MeltypeInputMethodService : InputMethodService
         AddCandidateHint(!string.IsNullOrWhiteSpace(view.Hint) ? view.Hint : view.Text);
     }
 
-    private void ShowIdleCandidateBar()
+    private void ShowIdleTopBar()
     {
         if (_candidateStrip is null)
             return;
 
         _candidateStrip.RemoveAllViews();
-        var mode = _direct ? "ABC" : "あ";
-        var engine = _nativeMozc is null ? "fallback" : "Mozc";
-        AddCandidateHint(_shift ? $"{mode} · Shift" : $"{mode} · {engine}");
+        AddToolbarKey("▦", ShowInputMethodPicker, "入力方法を切り替える");
+        AddToolbarKey("☺", ShowEmojiBar, "絵文字");
+        AddToolbarKey("▣", PasteClipboard, "クリップボードから貼り付ける");
+        AddToolbarKey("⚙", OpenSettings, "Meltype 設定");
+    }
+
+    private void AddToolbarKey(string label, Action action, string description)
+    {
+        if (_candidateStrip is null)
+            return;
+
+        var button = CreateKey(label, action, KeyKind.Toolbar);
+        button.ContentDescription = description;
+        var parameters = new LinearLayout.LayoutParams(Dp(54), Dp(40));
+        parameters.SetMargins(Dp(3), Dp(1), Dp(3), Dp(1));
+        _candidateStrip.AddView(button, parameters);
     }
 
     private void AddCandidateHint(string? text)
@@ -516,7 +654,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         var hint = new TextView(UiContext)
         {
             Text = text,
-            TextSize = 13,
+            TextSize = 14,
             Gravity = GravityFlags.CenterVertical,
             Ellipsize = TextUtils.TruncateAt.End
         };
