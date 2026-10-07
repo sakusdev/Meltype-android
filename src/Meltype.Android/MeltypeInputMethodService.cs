@@ -41,7 +41,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _nativeMozc = dataFile is null
             ? null
             : MozcNativeConverter.TryCreate(profileDirectory, dataFile);
-        _converter = _nativeMozc ?? new AndroidFallbackConverter();
+        _converter = (IKanjiConverter?)_nativeMozc ?? new AndroidFallbackConverter();
     }
 
     public override void OnDestroy()
@@ -56,9 +56,11 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         base.OnStartInput(attribute, restarting);
         var converter = _converter ?? new AndroidFallbackConverter();
+        Func<string, IReadOnlyList<string>>? moreCandidates =
+            _nativeMozc is null ? null : _nativeMozc.Candidates;
         _session = MeltypeSession.CreateDefault(
             converter,
-            _nativeMozc?.Candidates,
+            moreCandidates,
             wordChecker: null);
         _session.Direct = _direct;
         _hasComposingText = false;
