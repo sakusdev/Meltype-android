@@ -10,9 +10,16 @@
     <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
     <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Meltype.Core\Meltype.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('jniLibs/arm64-v8a/libmeltype_mozc.so')">
+    <AndroidNativeLibrary Include="jniLibs/arm64-v8a/libmeltype_mozc.so">
+      <Abi>arm64-v8a</Abi>
+    </AndroidNativeLibrary>
   </ItemGroup>
 </Project>

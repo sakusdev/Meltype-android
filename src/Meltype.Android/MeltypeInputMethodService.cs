@@ -23,6 +23,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private const int VkSpace = 0x20;
 
     private MeltypeSession? _session;
+    private IKanjiConverter? _converter;
+    private MozcNativeConverter? _nativeMozc;
     private LinearLayout? _candidateStrip;
     private TextView? _status;
     private Button? _modeButton;
@@ -30,12 +32,30 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private bool _shift;
     private bool _hasComposingText;
 
+    public override void OnCreate()
+    {
+        base.OnCreate();
+        var baseDirectory = FilesDir?.AbsolutePath ?? CacheDir?.AbsolutePath ?? ".";
+        var profileDirectory = Path.Combine(baseDirectory, "mozc");
+        _nativeMozc = MozcNativeConverter.TryCreate(profileDirectory);
+        _converter = _nativeMozc ?? new AndroidFallbackConverter();
+    }
+
+    public override void OnDestroy()
+    {
+        _nativeMozc?.Dispose();
+        _nativeMozc = null;
+        _converter = null;
+        base.OnDestroy();
+    }
+
     public override void OnStartInput(EditorInfo? attribute, bool restarting)
     {
         base.OnStartInput(attribute, restarting);
+        var converter = _converter ?? new AndroidFallbackConverter();
         _session = MeltypeSession.CreateDefault(
-            new AndroidFallbackConverter(),
-            moreCandidates: null,
+            converter,
+            _nativeMozc?.Candidates,
             wordChecker: null);
         _session.Direct = _direct;
         _hasComposingText = false;
@@ -72,7 +92,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         _status = new TextView(this)
         {
-            Text = "Meltype",
+            Text = _nativeMozc is null ? "Meltype (fallback)" : "Meltype / Mozc",
             Gravity = GravityFlags.CenterVertical
         };
         _status.SetPadding(Dp(8), 0, Dp(8), 0);
@@ -205,7 +225,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private void RefreshShiftStatus()
     {
         if (_status is not null && !_hasComposingText)
-            _status.Text = _shift ? "Shift" : "Meltype";
+            _status.Text = _shift ? "Shift" : BaseStatus();
     }
 
     private void ToggleDirectMode()
@@ -308,8 +328,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         _candidateStrip?.RemoveAllViews();
         if (_status is not null)
-            _status.Text = _shift ? "Shift" : "Meltype";
+            _status.Text = _shift ? "Shift" : BaseStatus();
     }
+
+    private string BaseStatus() => _nativeMozc is null ? "Meltype (fallback)" : "Meltype / Mozc";
 
     private int Dp(int value) =>
         (int)(value * Resources!.DisplayMetrics!.Density + 0.5f);

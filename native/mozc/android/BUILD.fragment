@@ -1,0 +1,31 @@
+# Meltype Android C ABI bridge. Appended to Mozc's android/jni/BUILD.bazel.
+mozc_cc_binary(
+    name = "meltype_mozc",
+    srcs = ["meltype_mozc_android.cc"],
+    linkopts = [
+        "-Wl,-z,max-page-size=16384",
+    ],
+    linkshared = 1,
+    target_compatible_with = _TARGET_COMPATIBLE_WITH,
+    deps = [
+        "//base:system_util",
+        "//base:util",
+        "//composer",
+        "//config:config_handler",
+        "//converter:converter_interface",
+        "//converter:segments",
+        "//engine",
+        "//engine:engine_factory",
+        "//protocol:commands_cc_proto",
+        "//protocol:config_cc_proto",
+        "//request:conversion_request",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cross_build_binary(
+    name = "meltype_mozc.arm64",
+    cpu = "arm64-v8a",
+    platform = ":arm64-v8a",
+    target = ":meltype_mozc",
+)

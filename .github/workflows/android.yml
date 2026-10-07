@@ -8,19 +8,21 @@ on:
     paths:
       - "src/Meltype.Android/**"
       - "src/Meltype.Core/**"
+      - "native/mozc/**"
       - "dictionaries/**"
       - ".github/workflows/android.yml"
   pull_request:
     paths:
       - "src/Meltype.Android/**"
       - "src/Meltype.Core/**"
+      - "native/mozc/**"
       - "dictionaries/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -34,6 +36,26 @@ jobs:
       - name: Install Android workload
         run: dotnet workload install android --source https://api.nuget.org/v3/index.json
 
+      - name: Bazelisk
+        run: |
+          mkdir -p "$HOME/tools"
+          curl -fsSL -o "$HOME/tools/bazelisk" https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64
+          echo "5a408715e932c0250d28bd84555f12edbf70117de42f9181691c736eacc4a992  $HOME/tools/bazelisk" | sha256sum -c -
+          chmod +x "$HOME/tools/bazelisk"
+
+      - name: Cache Mozc
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/bazel-cache
+            ~/mozc-android/src/third_party_cache
+          key: mozc-android-arm64-${{ hashFiles('native/mozc/MOZC_COMMIT') }}-${{ hashFiles('native/mozc/android/**', 'native/mozc/build-android.sh') }}
+          restore-keys: |
+            mozc-android-arm64-${{ hashFiles('native/mozc/MOZC_COMMIT') }}-
+
+      - name: Build Mozc Android bridge
+        run: BAZEL="$HOME/tools/bazelisk" native/mozc/build-android.sh "$HOME/mozc-android" "$HOME/bazel-cache"
+
       - name: Restore
         run: dotnet restore src/Meltype.Android/Meltype.Android.csproj --source https://api.nuget.org/v3/index.json
 
@@ -42,12 +64,13 @@ jobs:
           dotnet publish src/Meltype.Android/Meltype.Android.csproj
           -c Release
           -f net10.0-android
+          -r android-arm64
           --source https://api.nuget.org/v3/index.json
           -p:AndroidPackageFormat=apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: meltype-android-apk
-          path: src/Meltype.Android/bin/Release/net10.0-android/publish/*.apk
+          name: meltype-android-arm64-apk
+          path: src/Meltype.Android/bin/Release/net10.0-android/android-arm64/publish/*.apk
           if-no-files-found: error
