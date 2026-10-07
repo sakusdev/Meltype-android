@@ -2,7 +2,6 @@
 
 using Android.App;
 using Android.Content;
-using Android.Content.Res;
 using Android.InputMethodServices;
 using Android.Text;
 using Android.Views;
@@ -11,6 +10,7 @@ using Android.Widget;
 using Google.Android.Material.Button;
 using Meltype.Composition;
 using Color = Android.Graphics.Color;
+using ColorStateList = Android.Content.Res.ColorStateList;
 
 namespace Meltype.Android;
 
@@ -235,11 +235,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         button.SetPadding(Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 12 : 4), 0,
             Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 12 : 4), 0);
         ApplyKeyAppearance(button, kind);
-        button.Click += (_, _) =>
-        {
-            button.PerformHapticFeedback(HapticFeedbackConstants.KeyboardTap);
-            action();
-        };
+        button.Click += (_, _) => action();
         return button;
     }
 
@@ -325,7 +321,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         // Custom editor actions are not dispatched by SendDefaultEditorAction.
         if (editor is not null && editor.ActionId > 0 && editor.ActionLabel is not null)
         {
-            if (connection.PerformEditorAction(editor.ActionId))
+            if (connection.PerformEditorAction((ImeAction)editor.ActionId))
                 return;
         }
 
