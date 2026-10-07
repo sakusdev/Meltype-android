@@ -72,13 +72,25 @@ jobs:
         run: dotnet restore src/Meltype.Android/Meltype.Android.csproj --source https://api.nuget.org/v3/index.json
 
       - name: Publish APK
-        run: >
-          dotnet publish src/Meltype.Android/Meltype.Android.csproj
-          -c Release
-          -f net10.0-android
-          -r android-arm64
-          --source https://api.nuget.org/v3/index.json
-          -p:AndroidPackageFormat=apk
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet publish src/Meltype.Android/Meltype.Android.csproj \
+            -c Release \
+            -f net10.0-android \
+            -r android-arm64 \
+            --source https://api.nuget.org/v3/index.json \
+            -p:AndroidPackageFormat=apk \
+            2>&1 | tee publish.log
+
+      - name: Upload Android publish log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-publish-log
+          path: publish.log
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
