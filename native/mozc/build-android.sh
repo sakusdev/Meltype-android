@@ -42,10 +42,21 @@ cache_arg=()
 mkdir -p "$assets"
 cp -f bazel-bin/data_manager/oss/mozc.data "$assets/mozc.data"
 
-"${BAZEL:-bazel}" build //android/jni:meltype_mozc.arm64 --config oss_android --config release_build "${cache_arg[@]}"
-artifact="$(find bazel-out -type f -name 'libmeltype_mozc_android.so' -print -quit)"
-if [[ -z "$artifact" ]]; then
-  echo "libmeltype_mozc_android.so was not produced" >&2
+android_target="//android/jni:meltype_mozc.arm64"
+"${BAZEL:-bazel}" build "$android_target" --config oss_android --config release_build "${cache_arg[@]}"
+
+# cross_build_binary forwards the actual cc_binary output.  With linkshared=1
+# Mozc intentionally keeps the Bazel target name (e.g. the official target is
+# named `mozc`) and the Android packaging step renames that ELF to libmozc.so.
+# Ask Bazel for the transitioned output path instead of assuming a lib*.so name.
+artifact="$("${BAZEL:-bazel}" cquery "$android_target" \
+  --config oss_android --config release_build "${cache_arg[@]}" \
+  --output=files 2>/dev/null | awk 'NF { print; exit }')"
+if [[ -z "$artifact" || ! -f "$artifact" ]]; then
+  echo "Could not resolve the built Meltype Mozc shared-library artifact" >&2
+  "${BAZEL:-bazel}" cquery "$android_target" \
+    --config oss_android --config release_build "${cache_arg[@]}" \
+    --output=files || true
   exit 1
 fi
 
