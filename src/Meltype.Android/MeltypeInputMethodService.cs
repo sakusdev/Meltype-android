@@ -2,7 +2,6 @@
 
 using Android.App;
 using Android.Content;
-using Android.Graphics;
 using Android.Graphics.Drawables;
 using Android.InputMethodServices;
 using Android.Text;
@@ -10,6 +9,7 @@ using Android.Views;
 using Android.Views.InputMethods;
 using Android.Widget;
 using Meltype.Composition;
+using Color = Android.Graphics.Color;
 
 namespace Meltype.Android;
 
@@ -126,9 +126,9 @@ public sealed class MeltypeInputMethodService : InputMethodService
         };
         _candidateStrip = new LinearLayout(this)
         {
-            Orientation = Orientation.Horizontal,
-            Gravity = GravityFlags.CenterVertical
+            Orientation = Orientation.Horizontal
         };
+        _candidateStrip.SetGravity(GravityFlags.CenterVertical);
         _candidateStrip.SetPadding(Dp(3), Dp(2), Dp(3), Dp(2));
         candidateScroll.AddView(_candidateStrip, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.WrapContent,
@@ -142,9 +142,9 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Text = BaseStatus(),
             TextSize = 11,
             Gravity = GravityFlags.CenterVertical,
-            MaxLines = 1,
             Ellipsize = TextUtils.TruncateAt.End
         };
+        _status.SetMaxLines(1);
         _status.SetTextColor(SecondaryForeground);
         _status.SetPadding(Dp(10), 0, Dp(10), 0);
         root.AddView(_status, new LinearLayout.LayoutParams(
@@ -225,12 +225,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Text = text,
             TextSize = kind == KeyKind.Candidate ? 15 : 17,
             Gravity = GravityFlags.Center,
-            MinWidth = 0,
-            MinimumWidth = 0,
-            MinHeight = 0,
-            MinimumHeight = 0,
-            Elevation = 0,
-            StateListAnimator = null
+            Elevation = 0
         };
         button.SetAllCaps(false);
         button.SetPadding(Dp(4), 0, Dp(4), 0);
