@@ -36,8 +36,11 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         base.OnCreate();
         var baseDirectory = FilesDir?.AbsolutePath ?? CacheDir?.AbsolutePath ?? ".";
-        var profileDirectory = Path.Combine(baseDirectory, "mozc");
-        _nativeMozc = MozcNativeConverter.TryCreate(profileDirectory);
+        var profileDirectory = Path.Combine(baseDirectory, "mozc-profile");
+        var dataFile = ExtractMozcData(baseDirectory);
+        _nativeMozc = dataFile is null
+            ? null
+            : MozcNativeConverter.TryCreate(profileDirectory, dataFile);
         _converter = _nativeMozc ?? new AndroidFallbackConverter();
     }
 
@@ -92,7 +95,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         _status = new TextView(this)
         {
-            Text = _nativeMozc is null ? "Meltype (fallback)" : "Meltype / Mozc",
+            Text = BaseStatus(),
             Gravity = GravityFlags.CenterVertical
         };
         _status.SetPadding(Dp(8), 0, Dp(8), 0);
@@ -125,6 +128,24 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         UpdateModeLabel();
         return root;
+    }
+
+    private string? ExtractMozcData(string baseDirectory)
+    {
+        try
+        {
+            var path = Path.Combine(baseDirectory, "mozc.data");
+            using var input = Assets?.Open("mozc.data");
+            if (input is null)
+                return null;
+            using var output = File.Create(path);
+            input.CopyTo(output);
+            return path;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private View CreateCharacterRow(string keys)

@@ -18,8 +18,8 @@
 #include "converter/candidate.h"
 #include "converter/converter_interface.h"
 #include "converter/segments.h"
+#include "data_manager/data_manager.h"
 #include "engine/engine.h"
-#include "engine/engine_factory.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
@@ -168,12 +168,18 @@ char* CopyString(const std::string& value) {
 
 extern "C" {
 
-MELTYPE_EXPORT void* meltype_mozc_create(const char* profile_directory) {
-  if (profile_directory != nullptr && profile_directory[0] != '\0') {
-    mozc::SystemUtil::SetUserProfileDirectory(profile_directory);
+MELTYPE_EXPORT void* meltype_mozc_create(const char* profile_directory,
+                                         const char* data_file_path) {
+  if (profile_directory == nullptr || profile_directory[0] == '\0' ||
+      data_file_path == nullptr || data_file_path[0] == '\0') {
+    return nullptr;
   }
 
-  auto engine = mozc::EngineFactory::Create();
+  mozc::SystemUtil::SetUserProfileDirectory(profile_directory);
+  auto data_manager = mozc::DataManager::CreateFromFile(data_file_path);
+  if (!data_manager.ok()) return nullptr;
+
+  auto engine = mozc::Engine::CreateEngine(*std::move(data_manager));
   if (!engine.ok()) return nullptr;
   return new Handle(*std::move(engine));
 }

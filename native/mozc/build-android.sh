@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Build Meltype's Mozc C ABI bridge for Android arm64-v8a.
+# Build Meltype's Mozc C ABI bridge and OSS data set for Android arm64-v8a.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -9,6 +9,7 @@ mozc="${1:-$HOME/mozc-android}"
 cache="${2:-}"
 commit="$(tr -d '[:space:]' < "$here/MOZC_COMMIT")"
 out="$root/src/Meltype.Android/jniLibs/arm64-v8a"
+assets="$root/src/Meltype.Android/Assets"
 
 if [[ ! -d "$mozc/.git" ]]; then
   mkdir -p "$mozc"
@@ -20,22 +21,31 @@ if [[ ! -d "$mozc/.git" ]]; then
 fi
 
 src="$mozc/src"
-cp "$here/android/meltype_mozc_android.cc" "$src/android/jni/"
-if ! grep -q 'name = "meltype_mozc"' "$src/android/jni/BUILD.bazel"; then
+cp "$here/android/meltype_mozc_android.cc" "$src/converter/"
+if ! grep -q 'name = "meltype_mozc_android"' "$src/converter/BUILD.bazel"; then
+  printf '\n%s\n' "$(cat "$here/android/CONVERTER_BUILD.fragment")" >> "$src/converter/BUILD.bazel"
+fi
+if ! grep -q 'name = "meltype_mozc.arm64"' "$src/android/jni/BUILD.bazel"; then
   printf '\n%s\n' "$(cat "$here/android/BUILD.fragment")" >> "$src/android/jni/BUILD.bazel"
 fi
 
 cd "$src"
-# Populate third-party archives used by the Android build (including the NDK).
 python3 build_tools/update_deps.py
 
-options=(build //android/jni:meltype_mozc.arm64 --config oss_android --config release_build)
-[[ -n "$cache" ]] && options+=("--disk_cache=$cache")
-"${BAZEL:-bazel}" "${options[@]}"
+cache_arg=()
+[[ -n "$cache" ]] && cache_arg+=("--disk_cache=$cache")
 
-artifact="$(find bazel-out -type f -name 'libmeltype_mozc.so' -print -quit)"
+# The Android library loads the OSS dictionary from a regular file at runtime.
+# Build that file for the host first; trying to embed it in the cross-built
+# library pulls host-only data generators into the Android transition.
+"${BAZEL:-bazel}" build //data_manager/oss:mozc.data --config oss_linux --config release_build "${cache_arg[@]}"
+mkdir -p "$assets"
+cp -f bazel-bin/data_manager/oss/mozc.data "$assets/mozc.data"
+
+"${BAZEL:-bazel}" build //android/jni:meltype_mozc.arm64 --config oss_android --config release_build "${cache_arg[@]}"
+artifact="$(find bazel-out -type f -name 'libmeltype_mozc_android.so' -print -quit)"
 if [[ -z "$artifact" ]]; then
-  echo "libmeltype_mozc.so was not produced" >&2
+  echo "libmeltype_mozc_android.so was not produced" >&2
   exit 1
 fi
 
@@ -43,3 +53,4 @@ mkdir -p "$out"
 cp -f "$artifact" "$out/libmeltype_mozc.so"
 chmod u+w "$out/libmeltype_mozc.so"
 echo "Created: $out/libmeltype_mozc.so"
+echo "Created: $assets/mozc.data"

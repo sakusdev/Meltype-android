@@ -27,12 +27,12 @@ internal sealed class MozcNativeConverter : IKanjiConverter, ILearningConverter,
         _handle = handle;
     }
 
-    public static MozcNativeConverter? TryCreate(string profileDirectory)
+    public static MozcNativeConverter? TryCreate(string profileDirectory, string dataFilePath)
     {
         try
         {
             Directory.CreateDirectory(profileDirectory);
-            var handle = Native.Create(profileDirectory);
+            var handle = Native.Create(profileDirectory, dataFilePath);
             return handle == IntPtr.Zero ? null : new MozcNativeConverter(handle);
         }
         catch (DllNotFoundException)
@@ -190,7 +190,9 @@ internal sealed class MozcNativeConverter : IKanjiConverter, ILearningConverter,
         private const string Library = "meltype_mozc";
 
         [DllImport(Library, EntryPoint = "meltype_mozc_create", CallingConvention = CallingConvention.Cdecl)]
-        internal static extern IntPtr Create([MarshalAs(UnmanagedType.LPUTF8Str)] string profileDirectory);
+        internal static extern IntPtr Create(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string profileDirectory,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string dataFilePath);
 
         [DllImport(Library, EntryPoint = "meltype_mozc_destroy", CallingConvention = CallingConvention.Cdecl)]
         internal static extern void Destroy(IntPtr handle);
