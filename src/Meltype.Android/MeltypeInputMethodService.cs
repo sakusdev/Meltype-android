@@ -2,7 +2,10 @@
 
 using Android.App;
 using Android.Content;
+using Android.Graphics;
+using Android.Graphics.Drawables;
 using Android.InputMethodServices;
+using Android.Text;
 using Android.Views;
 using Android.Views.InputMethods;
 using Android.Widget;
@@ -22,6 +25,13 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private const int VkReturn = 0x0D;
     private const int VkSpace = 0x20;
 
+    // Android InputType constants. Keeping these local avoids depending on
+    // framework enum naming differences between .NET for Android versions.
+    private const int InputTypeMaskClass = 0x0000000f;
+    private const int InputTypeClassText = 0x00000001;
+    private const int InputTypeTextFlagMultiLine = 0x00020000;
+    private const int ImeActionMask = 0x000000ff;
+
     private MeltypeSession? _session;
     private IKanjiConverter? _converter;
     private MozcNativeConverter? _nativeMozc;
@@ -31,6 +41,24 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private bool _direct;
     private bool _shift;
     private bool _hasComposingText;
+
+    private bool IsDarkTheme
+    {
+        get
+        {
+            // UI_MODE_NIGHT_MASK = 0x30, UI_MODE_NIGHT_YES = 0x20.
+            var mode = (int)(Resources?.Configuration?.UiMode ?? 0);
+            return (mode & 0x30) == 0x20;
+        }
+    }
+
+    private Color KeyboardBackground => Color.ParseColor(IsDarkTheme ? "#202124" : "#E8EAED");
+    private Color KeyBackground => Color.ParseColor(IsDarkTheme ? "#303134" : "#F8F9FA");
+    private Color SpecialKeyBackground => Color.ParseColor(IsDarkTheme ? "#3C4043" : "#DADCE0");
+    private Color KeyForeground => Color.ParseColor(IsDarkTheme ? "#E8EAED" : "#202124");
+    private Color SecondaryForeground => Color.ParseColor(IsDarkTheme ? "#BDC1C6" : "#5F6368");
+    private Color AccentBackground => Color.ParseColor(IsDarkTheme ? "#8AB4F8" : "#1A73E8");
+    private Color AccentForeground => Color.ParseColor(IsDarkTheme ? "#202124" : "#FFFFFF");
 
     public override void OnCreate()
     {
@@ -80,52 +108,73 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     public override View? OnCreateInputView()
     {
-        var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
-        root.SetPadding(Dp(4), Dp(4), Dp(4), Dp(6));
+        var root = new LinearLayout(this)
+        {
+            Orientation = Orientation.Vertical,
+            Background = SolidRounded(KeyboardBackground, 0)
+        };
+
+        // Keep the bottom row clear of Android's gesture bar / IME switcher.
+        // On gesture-navigation devices the system keyboard-switch globe can
+        // otherwise overlap the Enter key and make a tap switch back to Gboard.
+        root.SetPadding(Dp(5), Dp(4), Dp(5), Dp(28));
 
         var candidateScroll = new HorizontalScrollView(this)
         {
-            HorizontalScrollBarEnabled = false
+            HorizontalScrollBarEnabled = false,
+            FillViewport = true
         };
-        _candidateStrip = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        _candidateStrip = new LinearLayout(this)
+        {
+            Orientation = Orientation.Horizontal,
+            Gravity = GravityFlags.CenterVertical
+        };
+        _candidateStrip.SetPadding(Dp(3), Dp(2), Dp(3), Dp(2));
         candidateScroll.AddView(_candidateStrip, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.WrapContent,
-            ViewGroup.LayoutParams.WrapContent));
+            ViewGroup.LayoutParams.MatchParent));
         root.AddView(candidateScroll, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
-            Dp(44)));
+            Dp(46)));
 
         _status = new TextView(this)
         {
             Text = BaseStatus(),
-            Gravity = GravityFlags.CenterVertical
+            TextSize = 11,
+            Gravity = GravityFlags.CenterVertical,
+            MaxLines = 1,
+            Ellipsize = TextUtils.TruncateAt.End
         };
-        _status.SetPadding(Dp(8), 0, Dp(8), 0);
+        _status.SetTextColor(SecondaryForeground);
+        _status.SetPadding(Dp(10), 0, Dp(10), 0);
         root.AddView(_status, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
-            Dp(28)));
+            Dp(22)));
 
         root.AddView(CreateCharacterRow("qwertyuiop"));
-        root.AddView(CreateCharacterRow("asdfghjkl"));
+
+        var second = CreateCharacterRow("asdfghjkl");
+        second.SetPadding(Dp(13), 0, Dp(13), 0);
+        root.AddView(second);
 
         var third = new LinearLayout(this) { Orientation = Orientation.Horizontal };
-        third.AddView(CreateSpecialButton("⇧", ToggleShift), WeightedKeyParams(1.2f));
+        third.AddView(CreateSpecialButton("⇧", ToggleShift, KeyKind.Special), WeightedKeyParams(1.28f));
         foreach (var c in "zxcvbnm")
         {
             var captured = c;
             third.AddView(CreateSpecialButton(c.ToString(), () => HandleLetter(captured)), WeightedKeyParams());
         }
-        third.AddView(CreateSpecialButton("⌫", HandleBackspace), WeightedKeyParams(1.2f));
+        third.AddView(CreateSpecialButton("⌫", HandleBackspace, KeyKind.Special), WeightedKeyParams(1.28f));
         root.AddView(third);
 
         var bottom = new LinearLayout(this) { Orientation = Orientation.Horizontal };
-        _modeButton = CreateSpecialButton("かな", ToggleDirectMode);
-        bottom.AddView(_modeButton, WeightedKeyParams(1.2f));
-        bottom.AddView(CreateSpecialButton("、", () => HandleCharacter('、')), WeightedKeyParams());
-        bottom.AddView(CreateSpecialButton("。", () => HandleCharacter('。')), WeightedKeyParams());
-        bottom.AddView(CreateSpecialButton("ー", () => HandleCharacter('ー')), WeightedKeyParams());
-        bottom.AddView(CreateSpecialButton("Space", HandleSpace), WeightedKeyParams(3.0f));
-        bottom.AddView(CreateSpecialButton("Enter", HandleEnter), WeightedKeyParams(1.6f));
+        _modeButton = CreateSpecialButton("かな", ToggleDirectMode, KeyKind.Special);
+        bottom.AddView(_modeButton, WeightedKeyParams(1.28f));
+        bottom.AddView(CreateSpecialButton("、", () => HandleCharacter('、'), KeyKind.Special), WeightedKeyParams());
+        bottom.AddView(CreateSpecialButton("。", () => HandleCharacter('。'), KeyKind.Special), WeightedKeyParams());
+        bottom.AddView(CreateSpecialButton("ー", () => HandleCharacter('ー'), KeyKind.Special), WeightedKeyParams());
+        bottom.AddView(CreateSpecialButton("space", HandleSpace), WeightedKeyParams(3.0f));
+        bottom.AddView(CreateSpecialButton("↵", HandleEnter, KeyKind.Accent), WeightedKeyParams(1.55f));
         root.AddView(bottom);
 
         UpdateModeLabel();
@@ -150,7 +199,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         }
     }
 
-    private View CreateCharacterRow(string keys)
+    private LinearLayout CreateCharacterRow(string keys)
     {
         var row = new LinearLayout(this) { Orientation = Orientation.Horizontal };
         foreach (var c in keys)
@@ -161,18 +210,57 @@ public sealed class MeltypeInputMethodService : InputMethodService
         return row;
     }
 
-    private Button CreateSpecialButton(string text, Action action)
+    private enum KeyKind
     {
-        var button = new Button(this) { Text = text, TextSize = 16 };
+        Normal,
+        Special,
+        Accent,
+        Candidate
+    }
+
+    private Button CreateSpecialButton(string text, Action action, KeyKind kind = KeyKind.Normal)
+    {
+        var button = new Button(this)
+        {
+            Text = text,
+            TextSize = kind == KeyKind.Candidate ? 15 : 17,
+            Gravity = GravityFlags.Center,
+            MinWidth = 0,
+            MinimumWidth = 0,
+            MinHeight = 0,
+            MinimumHeight = 0,
+            Elevation = 0,
+            StateListAnimator = null
+        };
         button.SetAllCaps(false);
+        button.SetPadding(Dp(4), 0, Dp(4), 0);
+
+        var background = kind switch
+        {
+            KeyKind.Special => SpecialKeyBackground,
+            KeyKind.Accent => AccentBackground,
+            KeyKind.Candidate => IsDarkTheme ? Color.ParseColor("#292A2D") : Color.ParseColor("#FFFFFF"),
+            _ => KeyBackground
+        };
+        var foreground = kind == KeyKind.Accent ? AccentForeground : KeyForeground;
+        button.Background = SolidRounded(background, kind == KeyKind.Candidate ? Dp(18) : Dp(7));
+        button.SetTextColor(foreground);
         button.Click += (_, _) => action();
         return button;
+    }
+
+    private GradientDrawable SolidRounded(Color color, int radius)
+    {
+        var drawable = new GradientDrawable();
+        drawable.SetColor(color);
+        drawable.SetCornerRadius(radius);
+        return drawable;
     }
 
     private LinearLayout.LayoutParams WeightedKeyParams(float weight = 1f)
     {
         var p = new LinearLayout.LayoutParams(0, Dp(50), weight);
-        p.SetMargins(Dp(2), Dp(2), Dp(2), Dp(2));
+        p.SetMargins(Dp(2), Dp(3), Dp(2), Dp(3));
         return p;
     }
 
@@ -211,19 +299,42 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void HandleEnter()
     {
-        HandleVirtualKey(VkReturn, null, () =>
-        {
-            var connection = CurrentInputConnection;
-            if (connection is null)
-                return;
+        HandleVirtualKey(VkReturn, null, PerformEditorEnter);
+    }
 
-            connection.SendKeyEvent(new global::Android.Views.KeyEvent(
-                global::Android.Views.KeyEventActions.Down,
-                global::Android.Views.Keycode.Enter));
-            connection.SendKeyEvent(new global::Android.Views.KeyEvent(
-                global::Android.Views.KeyEventActions.Up,
-                global::Android.Views.Keycode.Enter));
-        });
+    private void PerformEditorEnter()
+    {
+        var connection = CurrentInputConnection;
+        if (connection is null)
+            return;
+
+        var editor = CurrentInputEditorInfo;
+        var inputType = editor is null ? 0 : (int)editor.InputType;
+        var isMultilineText =
+            (inputType & InputTypeMaskClass) == InputTypeClassText &&
+            (inputType & InputTypeTextFlagMultiLine) != 0;
+
+        // Multiline editors should receive a real newline rather than an editor action.
+        if (isMultilineText)
+        {
+            connection.CommitText("\n", 1);
+            return;
+        }
+
+        var imeOptions = editor is null ? 0 : (int)editor.ImeOptions;
+        var actionId = imeOptions & ImeActionMask;
+
+        // IME_ACTION_GO..PREVIOUS are 2..7. These are the actions expected by
+        // search bars, chat send fields, next/done forms, etc.
+        if (actionId is >= 2 and <= 7)
+        {
+            connection.PerformEditorAction((ImeAction)actionId);
+            return;
+        }
+
+        // No explicit action: behave like a normal Enter key without injecting
+        // raw key events, which are less reliable across Android applications.
+        connection.CommitText("\n", 1);
     }
 
     private void HandleVirtualKey(int vk, char? ch, Action fallback)
@@ -336,10 +447,13 @@ public sealed class MeltypeInputMethodService : InputMethodService
                 {
                     if (_session is not null)
                         Apply(_session.SelectCandidate(index));
-                });
-                _candidateStrip.AddView(button, new LinearLayout.LayoutParams(
+                }, KeyKind.Candidate);
+
+                var parameters = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WrapContent,
-                    Dp(42)));
+                    Dp(38));
+                parameters.SetMargins(Dp(3), Dp(2), Dp(3), Dp(2));
+                _candidateStrip.AddView(button, parameters);
             }
         }
 
@@ -354,7 +468,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             _status.Text = _shift ? "Shift" : BaseStatus();
     }
 
-    private string BaseStatus() => _nativeMozc is null ? "Meltype (fallback)" : "Meltype / Mozc";
+    private string BaseStatus() => _nativeMozc is null ? "Meltype · fallback" : "Meltype · Mozc";
 
     private int Dp(int value) =>
         (int)(value * Resources!.DisplayMetrics!.Density + 0.5f);
