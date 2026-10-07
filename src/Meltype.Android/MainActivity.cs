@@ -25,9 +25,9 @@ public sealed class MainActivity : Activity
         var scroll = new ScrollView(this) { FillViewport = true };
         var root = new LinearLayout(this)
         {
-            Orientation = Orientation.Vertical,
-            Gravity = GravityFlags.CenterHorizontal
+            Orientation = Orientation.Vertical
         };
+        root.SetGravity(GravityFlags.CenterHorizontal);
         root.SetPadding(Dp(24), Dp(36), Dp(24), Dp(32));
         scroll.AddView(root, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
@@ -90,9 +90,10 @@ public sealed class MainActivity : Activity
     {
         var row = new LinearLayout(this)
         {
-            Orientation = Orientation.Horizontal,
-            Gravity = GravityFlags.CenterVertical
+            Orientation = Orientation.Horizontal
         };
+        row.SetGravity(GravityFlags.CenterVertical);
+
         var badge = new TextView(this)
         {
             Text = number,
