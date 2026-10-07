@@ -7,7 +7,7 @@
     <ApplicationId>org.sakusdev.meltype.android</ApplicationId>
     <ApplicationTitle>Meltype for Android</ApplicationTitle>
     <ApplicationVersion>1</ApplicationVersion>
-    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <ApplicationDisplayVersion>0.2.0</ApplicationDisplayVersion>
     <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Meltype.Core\Meltype.Core.csproj" />
+    <PackageReference Include="Xamarin.Google.Android.Material" Version="1.14.0.6" />
   </ItemGroup>
 
   <ItemGroup Condition="Exists('jniLibs/arm64-v8a/libmeltype_mozc.so')">
