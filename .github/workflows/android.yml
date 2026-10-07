@@ -54,7 +54,19 @@ jobs:
             mozc-android-arm64-${{ hashFiles('native/mozc/MOZC_COMMIT') }}-
 
       - name: Build Mozc Android bridge
-        run: BAZEL="$HOME/tools/bazelisk" native/mozc/build-android.sh "$HOME/mozc-android" "$HOME/bazel-cache"
+        shell: bash
+        run: |
+          set -o pipefail
+          BAZEL="$HOME/tools/bazelisk" native/mozc/build-android.sh "$HOME/mozc-android" "$HOME/bazel-cache" 2>&1 | tee mozc-build.log
+
+      - name: Upload Mozc build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozc-build-log
+          path: mozc-build.log
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Restore
         run: dotnet restore src/Meltype.Android/Meltype.Android.csproj --source https://api.nuget.org/v3/index.json
