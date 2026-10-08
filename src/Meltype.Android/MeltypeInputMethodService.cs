@@ -27,6 +27,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private const int VkBack = 0x08;
     private const int VkReturn = 0x0D;
     private const int VkSpace = 0x20;
+    private const int VkLeft = 0x25;
+    private const int VkRight = 0x27;
     private const int ImeActionMask = 0x000000ff;
 
     private enum InputLayer
@@ -107,6 +109,9 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private readonly List<(MaterialButton Button, char Character)> _letterButtons = [];
     private readonly List<string> _recentEmojis = [];
+    private readonly EditorSelectionTracker _selection = new();
+    private EditorInputPolicy _inputPolicy = new(false, false, false, true);
+    private InputLayer _preferredTextLayer = InputLayer.Japanese;
 
     private MeltypeSession? _session;
     private IKanjiConverter? _converter;
@@ -217,6 +222,14 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         try
         {
+            _inputPolicy = EditorInputPolicy.From((int)(attribute?.InputType ?? 0), (int)(attribute?.ImeOptions ?? 0));
+            _selection.Reset(attribute?.InitialSelStart ?? -1, attribute?.InitialSelEnd ?? -1);
+            _inputLayer = _inputPolicy.Numeric ? InputLayer.Numbers :
+                _inputPolicy.Direct ? InputLayer.Latin : _preferredTextLayer;
+            _direct = _inputLayer != InputLayer.Japanese;
+            _emojiPanelOpen = false;
+            _shift = false;
+            DismissKeyPreview();
             var converter = _converter ?? new AndroidFallbackConverter();
             Func<string, IReadOnlyList<string>>? moreCandidates =
                 _nativeMozc is null ? null : _nativeMozc.Candidates;
@@ -224,11 +237,13 @@ public sealed class MeltypeInputMethodService : InputMethodService
             _session = MeltypeSession.CreateDefault(
                 converter,
                 moreCandidates,
-                wordChecker: null);
+                wordChecker: null,
+                allowPersonalizedLearning: _inputPolicy.AllowLearning);
             _session.Direct = _direct;
             _hasComposingText = false;
 
             UpdateEnterKey(attribute);
+            RebuildKeyArea();
             ShowIdleTopBar();
         }
         catch (Exception ex)
@@ -237,7 +252,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
             _session = MeltypeSession.CreateDefault(
                 new AndroidFallbackConverter(),
                 moreCandidates: null,
-                wordChecker: null);
+                wordChecker: null,
+                allowPersonalizedLearning: _inputPolicy.AllowLearning);
             _session.Direct = _direct;
             _hasComposingText = false;
         }
@@ -248,6 +264,22 @@ public sealed class MeltypeInputMethodService : InputMethodService
         base.OnStartInputView(info, restarting);
         Log.Info(LogTag,
             $"input-view start restart={restarting} package={info?.PackageName ?? "?"} inputType={(int)(info?.InputType ?? 0)} imeOptions={(int)(info?.ImeOptions ?? 0)}");
+    }
+
+    public override void OnUpdateSelection(int oldSelStart, int oldSelEnd, int newSelStart, int newSelEnd, int candidatesStart, int candidatesEnd)
+    {
+        base.OnUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd);
+        SafeRun("OnUpdateSelection", () =>
+        {
+            if (!_selection.Observe(newSelStart, newSelEnd, candidatesStart, candidatesEnd))
+                return;
+
+            // The editor already moved the caret. Preserve its text rather than
+            // committing an old Core buffer at the newly selected position.
+            _session?.ResetInputContext();
+            FinishEditorComposition();
+            if (!_emojiPanelOpen) ShowIdleTopBar();
+        });
     }
 
     public override void OnFinishInputView(bool finishingInput)
@@ -463,8 +495,12 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         try
         {
-            CurrentInputConnection?.CommitText(text, 1);
-            _hasComposingText = false;
+            if (CurrentInputConnection is null) return;
+            if (_session is { IsComposing: true } session)
+                Apply(session.CommitPending());
+            _session?.ResetInputContext();
+            CommitEditorText(text);
+            if (!_emojiPanelOpen) ShowIdleTopBar();
         }
         catch (Exception ex)
         {
@@ -535,7 +571,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             var row = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
             for (var column = 0; column < columns; column++)
             {
-                if (index < items.Count)
+                if (index < items.Length)
                 {
                     var emoji = items[index++];
                     var button = CreateKey(emoji, () => CommitEmoji(emoji), KeyKind.Candidate);
@@ -560,7 +596,15 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         _backspaceButton = CreateIconKey(
             Resource.Drawable.ic_key_backspace,
-            HandleBackspace,
+            () =>
+            {
+                if (_backspaceRepeated)
+                {
+                    _backspaceRepeated = false;
+                    return;
+                }
+                HandleBackspace();
+            },
             KeyKind.Special,
             "削除");
         AttachBackspaceRepeat(_backspaceButton);
@@ -611,12 +655,14 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         try
         {
-            CurrentInputConnection?.CommitText(emoji, 1);
-            _recentEmojis.Remove(emoji);
-            _recentEmojis.Insert(0, emoji);
-            if (_recentEmojis.Count > 24)
-                _recentEmojis.RemoveAt(_recentEmojis.Count - 1);
-            _hasComposingText = false;
+            CommitDirectText(emoji);
+            if (_inputPolicy.AllowLearning)
+            {
+                _recentEmojis.Remove(emoji);
+                _recentEmojis.Insert(0, emoji);
+                if (_recentEmojis.Count > 24)
+                    _recentEmojis.RemoveAt(_recentEmojis.Count - 1);
+            }
         }
         catch (Exception ex)
         {
@@ -868,15 +914,14 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         if (_direct)
         {
-            connection.CommitText(c.ToString(), 1);
-            _hasComposingText = false;
+            CommitEditorText(c.ToString());
             return;
         }
 
         var session = _session;
         if (session is null)
         {
-            connection.CommitText(c.ToString(), 1);
+            CommitEditorText(c.ToString());
             return;
         }
 
@@ -886,7 +931,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         Apply(result);
 
         if (!result.Consumed)
-            connection.CommitText(c.ToString(), 1);
+            CommitEditorText(c.ToString());
     }
 
     private void HandleSpace()
@@ -915,9 +960,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
             // active IME interaction and may hide the keyboard.
             if (session is null || !session.IsComposing || _direct)
             {
-                connection.CommitText(" ", 1);
-                _hasComposingText = false;
-                ShowIdleTopBar();
+                CommitEditorText(" ");
+                if (!_emojiPanelOpen) ShowIdleTopBar();
             }
             else
             {
@@ -931,7 +975,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
                 Apply(result, finishComposition: false);
 
                 if (!result.Consumed)
-                    connection.CommitText(" ", 1);
+                    CommitEditorText(" ");
             }
         }
         catch (Exception ex)
@@ -964,7 +1008,31 @@ public sealed class MeltypeInputMethodService : InputMethodService
     }
 
     private void HandleBackspace() =>
-        HandleVirtualKey(VkBack, null, () => CurrentInputConnection?.DeleteSurroundingText(1, 0));
+        HandleVirtualKey(VkBack, null, DeleteEditorText);
+
+    private void DeleteEditorText()
+    {
+        var connection = CurrentInputConnection;
+        if (connection is null) return;
+
+        if (!string.IsNullOrEmpty(connection.GetSelectedText((GetTextFlags)0)))
+        {
+            CommitEditorText(string.Empty);
+            return;
+        }
+
+        var before = connection.GetTextBeforeCursor(128, (GetTextFlags)0);
+        if (before is not null)
+        {
+            var length = EditorText.BackspaceLength(before);
+            if (length == 0) return;
+            _selection.DeleteBefore(length);
+            if (connection.DeleteSurroundingText(length, 0)) return;
+        }
+
+        connection.SendKeyEvent(new KeyEvent(KeyEventActions.Down, global::Android.Views.Keycode.Del));
+        connection.SendKeyEvent(new KeyEvent(KeyEventActions.Up, global::Android.Views.Keycode.Del));
+    }
 
     private void HandleEnter() =>
         HandleVirtualKey(VkReturn, null, PerformEditorEnter);
@@ -989,12 +1057,28 @@ public sealed class MeltypeInputMethodService : InputMethodService
         SendKeyChar('\n');
     }
 
-    private void MoveCursor(global::Android.Views.Keycode keycode)
+    private void MoveCursor(global::Android.Views.Keycode keycode, bool selectClause = true)
+    {
+        if (selectClause && !_direct && _session is { IsComposing: true })
+        {
+            HandleVirtualKey(keycode == global::Android.Views.Keycode.DpadLeft ? VkLeft : VkRight,
+                null, () => MoveEditorCursor(keycode));
+            return;
+        }
+
+        MoveEditorCursor(keycode);
+    }
+
+    private void MoveEditorCursor(global::Android.Views.Keycode keycode)
     {
         var connection = CurrentInputConnection;
         if (connection is null)
             return;
 
+        if (_session is { IsComposing: true } session)
+            Apply(session.CommitPending());
+        _session?.ResetInputContext();
+        FinishEditorComposition();
         connection.SendKeyEvent(new KeyEvent(KeyEventActions.Down, keycode));
         connection.SendKeyEvent(new KeyEvent(KeyEventActions.Up, keycode));
     }
@@ -1030,7 +1114,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
                             : global::Android.Views.Keycode.DpadRight;
 
                         for (var i = 0; i < Math.Min(8, Math.Abs(steps)); i++)
-                            MoveCursor(keycode);
+                            MoveCursor(keycode, selectClause: false);
 
                         _spaceLastX += steps * threshold;
                         SafeHaptic(button);
@@ -1117,6 +1201,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void ShowKeyPreview(MaterialButton button)
     {
+        if (_inputPolicy.Sensitive) return;
         DismissKeyPreview();
 
         var label = new TextView(UiContext)
@@ -1273,6 +1358,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
         if (_session is { IsComposing: true } session)
             Apply(session.CommitPending());
 
+        if (_inputPolicy.Sensitive && layer == InputLayer.Japanese)
+            layer = _inputPolicy.Numeric ? InputLayer.Numbers : InputLayer.Latin;
+        if (!_inputPolicy.Sensitive && layer is InputLayer.Japanese or InputLayer.Latin)
+            _preferredTextLayer = layer;
         _emojiPanelOpen = false;
         _inputLayer = layer;
         _direct = layer != InputLayer.Japanese;
@@ -1361,7 +1450,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         var text = clip.GetItemAt(0)?.CoerceToText(this)?.ToString();
         if (!string.IsNullOrEmpty(text))
-            CurrentInputConnection?.CommitText(text, 1);
+            CommitDirectText(text);
     }
 
     private void ShowEmojiBar()
@@ -1431,7 +1520,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private (string? Before, string? After) SurroundingText()
     {
-        if (_hasComposingText)
+        if (_hasComposingText || _inputPolicy.Sensitive)
             return (null, null);
 
         var connection = CurrentInputConnection;
@@ -1459,25 +1548,30 @@ public sealed class MeltypeInputMethodService : InputMethodService
         if (result is null)
             return;
 
+        var connection = CurrentInputConnection;
+        if (connection is null) return;
+        var batchStarted = false;
         try
         {
-            var connection = CurrentInputConnection;
-            if (connection is null)
-                return;
+            batchStarted = connection.BeginBatchEdit();
 
             foreach (var edit in result.Commits)
             {
                 if (edit.DeleteBefore > 0)
+                {
+                    _selection.DeleteBefore(edit.DeleteBefore);
                     connection.DeleteSurroundingText(edit.DeleteBefore, 0);
+                }
 
                 if (!string.IsNullOrEmpty(edit.Text))
-                    connection.CommitText(edit.Text, 1);
+                    CommitEditorText(edit.Text);
 
                 _hasComposingText = false;
             }
 
             if (result.View is { } view)
             {
+                _selection.Replace(view.Text.Length, composing: view.Text.Length > 0);
                 connection.SetComposingText(view.Text, 1);
                 _hasComposingText = view.Text.Length > 0;
 
@@ -1487,7 +1581,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             else
             {
                 if (finishComposition)
-                    connection.FinishComposingText();
+                    FinishEditorComposition();
                 _hasComposingText = false;
 
                 if (updateUi)
@@ -1499,10 +1593,36 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Warn("Apply", ex);
             _hasComposingText = false;
         }
+        finally
+        {
+            if (batchStarted)
+                SafeRun("Apply/EndBatchEdit", () => connection.EndBatchEdit());
+        }
+    }
+
+    private void CommitEditorText(string text)
+    {
+        var connection = CurrentInputConnection;
+        if (connection is null) return;
+        _selection.Replace(text.Length, composing: false);
+        connection.CommitText(text, 1);
+        _hasComposingText = false;
+    }
+
+    private void FinishEditorComposition()
+    {
+        _selection.FinishComposition();
+        CurrentInputConnection?.FinishComposingText();
+        _hasComposingText = false;
     }
 
     private void ShowCandidates(CompositionView view)
     {
+        if (_inputPolicy.Sensitive)
+        {
+            ShowIdleTopBar();
+            return;
+        }
         try
         {
             var strip = _candidateStrip;

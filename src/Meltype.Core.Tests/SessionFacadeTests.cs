@@ -98,6 +98,99 @@ internal static class SessionFacadeTests
     }
 
     [Test]
+    public static void DirectInsertionBoundary_CommitsPendingTextBeforeTheNextComposition()
+    {
+        var session = Create();
+        Type(session, "nihongo");
+        var pending = session.CommitPending();
+        Assert.Equal("にほんご", pending.Commits.Single().Text);
+        Assert.True(!session.IsComposing, "punctuation must not leave a stale reading in Core");
+        session.ResetInputContext();
+        Assert.Equal("あ", Type(session, "a")[0].View?.Text, "next character starts a fresh composition after punctuation");
+    }
+
+    [Test]
+    public static void ExternalCursorMove_DropsCompositionWithoutWritingToTheNewPosition()
+    {
+        var session = Create();
+        Type(session, "nihongo");
+        session.ResetInputContext();
+        Assert.True(!session.IsComposing, "moving in the editor ends the old Core buffer");
+        var result = Type(session, "a")[0];
+        Assert.Equal(0, result.Commits.Count, "old text must not be committed at the new cursor");
+        Assert.Equal("あ", result.View?.Text);
+    }
+
+    [Test]
+    public static void ExternalCursorMove_DropsCorrectionOfPreviouslyCommittedWords()
+    {
+        var session = Create();
+        Type(session, "i \n");
+        session.ResetInputContext();
+        var result = Type(session, "want ")[^1];
+        Assert.True(result.Commits.All(c => c.DeleteBefore == 0), "must not delete unrelated text at the new cursor");
+    }
+
+    [Test]
+    public static void ConversionArrow_CanSelectTheSecondClause()
+    {
+        var session = Create();
+        var first = Type(session, "tanniwotoru ")[^1].View!;
+        Assert.True(first.Clauses is { Count: > 1 }, "test needs a multi-clause conversion");
+        var next = session.HandleKey(VirtualKeys.Right, null, false, false, false, false);
+        Assert.True(next.Consumed, "clause movement must not reach the editor");
+        Assert.Equal(1, next.View?.SelectedClause);
+        Assert.True(next.View!.Candidates.Contains("取る"), "show candidates for the second clause");
+    }
+
+    [Test]
+    public static void PrivateComposition_DoesNotUpdateLanguageOrCandidateHistory()
+    {
+        var languages = new LanguageMemory(null);
+        var history = new ConversionHistory(null);
+        var session = new MeltypeSession(CompositionTests.Detector, new CompositionTests.FakeConverter(),
+            new CompositionOptions { PersonalizedLearning = false, Languages = languages, History = history },
+            () => new Settings());
+        var candidates = Type(session, "api ")[^1].View!.Candidates;
+        var rawIndex = candidates.ToList().IndexOf("api");
+        Assert.True(rawIndex >= 0, "raw candidate is available in private fields");
+        session.SelectCandidate(rawIndex);
+        Type(session, "\n");
+        Assert.Equal(0, languages.Count, "chosen Latin input must not become a learned word");
+
+        candidates = Type(session, "nihongo ")[^1].View!.Candidates;
+        session.SelectCandidate(candidates.ToList().IndexOf("日本語"));
+        Type(session, "\n");
+        Assert.Equal(0, history.Count, "candidate choices must not enter personalized history");
+    }
+
+    private sealed class RecordingLearningConverter : IKanjiConverter, ILearningConverter, IDisposable
+    {
+        public ManualResetEventSlim Learned { get; } = new();
+        public string? Convert(string hiragana) => "日本語";
+        public IReadOnlyList<ConversionClause>? ConvertClauses(string hiragana, string? context = null) =>
+            [new(hiragana, "日本語")];
+        public void Learn(string? context, IReadOnlyList<ConversionClause> clauses) => Learned.Set();
+        public void Dispose() => Learned.Dispose();
+    }
+
+    [Test]
+    public static void PrivateComposition_DoesNotSendLearningToTheNativeBackend()
+    {
+        using var normal = new RecordingLearningConverter();
+        using var privateConverter = new RecordingLearningConverter();
+        foreach (var (converter, learning) in new[] { (normal, true), (privateConverter, false) })
+        {
+            var session = new MeltypeSession(CompositionTests.Detector, converter,
+                new CompositionOptions { PersonalizedLearning = learning }, () => new Settings());
+            Type(session, "nihongo \n");
+        }
+        Assert.True(normal.Learned.Wait(TimeSpan.FromSeconds(5)), "normal input still learns asynchronously");
+        Assert.True(!privateConverter.Learned.Wait(TimeSpan.FromMilliseconds(200)),
+            "private input must not queue learning against the shared native profile");
+    }
+
+    [Test]
     public static void Json_IsEscaped()
     {
         var result = new SessionResult(true, [new TextEdit(2, "a\"b\\c\n")], new CompositionView("x", ["y"], 0, true, "h", ["x"], 0));

@@ -11,5 +11,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Meltype.Core\Meltype.Core.csproj" />
     <InternalsVisibleTo Include="Meltype.Tests" />
+    <Compile Include="..\Meltype.Android\EditorInputPolicy.cs" Link="Android\EditorInputPolicy.cs" />
+    <Compile Include="..\Meltype.Android\EditorSelectionTracker.cs" Link="Android\EditorSelectionTracker.cs" />
+    <Compile Include="..\Meltype.Android\EditorText.cs" Link="Android\EditorText.cs" />
   </ItemGroup>
 </Project>

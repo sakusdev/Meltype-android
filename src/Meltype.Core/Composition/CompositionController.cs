@@ -65,6 +65,9 @@ public sealed record ReconversionSelection(string Text, string Reading);
 /// <summary>CompositionController の設定と、外の判定器へのつなぎ。</summary>
 public sealed class CompositionOptions
 {
+    /// <summary>入力内容を言語・候補・変換エンジンの学習へ渡してよいか。</summary>
+    public bool PersonalizedLearning { get; init; } = true;
+
     /// <summary>打ったそばから漢字に変換して見せるか。</summary>
     public Func<bool> LiveConversion { get; init; } = () => false;
 
@@ -1386,6 +1389,7 @@ public sealed class CompositionController
     /// </summary>
     private void LearnLanguage()
     {
+        if (!_options.PersonalizedLearning) return;
         if (_options.Languages is not { } memory) return;
         var raw = _text.Raw;
         if (raw.Length < 2 || !raw.All(char.IsAsciiLetter)) return;
@@ -1461,6 +1465,7 @@ public sealed class CompositionController
     /// <summary>選び直した文節を学習する (次に同じ読みを変換したとき最初の候補にする)。</summary>
     private void Learn()
     {
+        if (!_options.PersonalizedLearning) return;
         // 変換の候補から打ったままの英字 (api) を選んで確定したら、その語は次から英字にする (F10 と同じ)。
         foreach (var clause in _clauses.Where(c => !c.IsEnglish && c.Changed && c.Raw is { } raw && c.Text == raw))
         {

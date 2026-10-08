@@ -14,6 +14,12 @@ Android の正式な IME (`InputMethodService`) として `Meltype.Core` を動�
 - 前後 20 文字を Meltype の文脈判定へ渡す処理
 - かな / ABC（直接入力）切り替え
 - エディタの Search / Send / Done / Next などに対応する Enter 処理
+- 数字・電話番号・URL・メールアドレス欄に合わせた初期入力モード
+- パスワード欄の直接入力とプレビュー・学習の抑制
+- `IME_FLAG_NO_PERSONALIZED_LEARNING` を指定した入力欄での学習停止（日本語変換は利用可能）
+- 句読点・貼り付けの前に未確定文字を確定し、文字の置き換えを防ぐ処理
+- 変換中の左右キーによる文節選択と、エディタ側の選択変更との同期
+- 選択範囲と絵文字・結合文字を考慮した Backspace
 - Android のライト / ダークテーマに合わせた Gboard 系のキー UI
 - ジェスチャーナビゲーション / IME 切替ボタンとの重なりを避ける下部安全余白
 - GitHub Actions で arm64-v8a APK を生成
@@ -40,6 +46,10 @@ GitHub Actions では pinned Mozc source から以下を生成します。
 
 ネイティブ Mozc の初期化に失敗した場合は `AndroidFallbackConverter` にフォールバックします。
 
+パスワード欄では日本語の自動判定・候補表示・キーの拡大プレビューを使用しません。
+アプリが学習停止フラグを指定した入力欄では、Meltype の学習ファイルへの保存と Mozc への学習通知を停止します。
+通常の入力欄へ戻ると、通常の学習動作へ戻ります。
+
 ## 対応 ABI
 
 現在の CI artifact は `arm64-v8a` 向けです。Pixel など一般的な現行 Android arm64 端末を対象にしています。
@@ -60,6 +70,12 @@ dotnet publish src/Meltype.Android/Meltype.Android.csproj \
   -c Release \
   -f net10.0-android \
   -p:AndroidPackageFormat=apk
+```
+
+Android の入力方針・カーソル同期・Unicode 削除と、共通セッションの回帰テストは Android SDK なしでも実行できます。
+
+```bash
+dotnet run --project src/Meltype.Core.Tests/Meltype.Core.Tests.csproj -c Release
 ```
 
 ## インストール後
