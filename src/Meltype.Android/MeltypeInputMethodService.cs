@@ -51,6 +51,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private bool _backspaceRepeated;
     private float _spaceLastX;
     private bool _spaceWasSwiped;
+    private long _lastSpaceInputAtMs;
     private bool _direct;
     private bool _shift;
     private bool _hasComposingText;
@@ -171,7 +172,11 @@ public sealed class MeltypeInputMethodService : InputMethodService
     public override void OnFinishInputView(bool finishingInput)
     {
         StopBackspaceRepeat();
-        Log.Info(LogTag, $"input-view finish finishingInput={finishingInput}");
+        var sinceSpace = _lastSpaceInputAtMs == 0
+            ? -1
+            : Environment.TickCount64 - _lastSpaceInputAtMs;
+        Log.Info(LogTag,
+            $"input-view finish finishingInput={finishingInput} sinceSpaceMs={sinceSpace}");
         base.OnFinishInputView(finishingInput);
     }
 
@@ -550,7 +555,70 @@ public sealed class MeltypeInputMethodService : InputMethodService
             return;
         }
 
-        HandleVirtualKey(VkSpace, ' ', () => CurrentInputConnection?.CommitText(" ", 1));
+        _lastSpaceInputAtMs = Environment.TickCount64;
+        var connection = CurrentInputConnection;
+        if (connection is null)
+            return;
+
+        var session = _session;
+        var batchStarted = false;
+
+        try
+        {
+            batchStarted = connection.BeginBatchEdit();
+
+            // A plain space outside composition must stay a plain editor edit.
+            // Running it through MeltypeSession used to emit an empty View and then
+            // FinishComposingText(), which some editors interpret as the end of the
+            // active IME interaction and may hide the keyboard.
+            if (session is null || !session.IsComposing || _direct)
+            {
+                connection.CommitText(" ", 1);
+                _hasComposingText = false;
+                ShowIdleTopBar();
+            }
+            else
+            {
+                var (before, after) = SurroundingText();
+                var result = session.HandleKey(
+                    VkSpace, ' ', false, false, false, false, before, after);
+
+                // CommitText already resolves Android composing spans when the
+                // controller commits an English word + space. Avoid the extra
+                // FinishComposingText() call specifically on Space.
+                Apply(result, finishComposition: false);
+
+                if (!result.Consumed)
+                    connection.CommitText(" ", 1);
+            }
+        }
+        catch (Exception ex)
+        {
+            Warn("HandleSpace", ex);
+        }
+        finally
+        {
+            if (batchStarted)
+            {
+                try
+                {
+                    connection.EndBatchEdit();
+                }
+                catch (Exception ex)
+                {
+                    Warn("HandleSpace/EndBatchEdit", ex);
+                }
+            }
+        }
+
+        try
+        {
+            RequestShowSelf(ShowFlags.Implicit);
+        }
+        catch (Exception ex)
+        {
+            Warn("HandleSpace/RequestShowSelf", ex);
+        }
     }
 
     private void HandleBackspace() =>
@@ -881,7 +949,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
         }
     }
 
-    private void Apply(SessionResult? result, bool updateUi = true)
+    private void Apply(
+        SessionResult? result,
+        bool updateUi = true,
+        bool finishComposition = true)
     {
         if (result is null)
             return;
@@ -913,7 +984,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
             }
             else
             {
-                connection.FinishComposingText();
+                if (finishComposition)
+                    connection.FinishComposingText();
                 _hasComposingText = false;
 
                 if (updateUi)
