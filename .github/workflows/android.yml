@@ -104,6 +104,9 @@ jobs:
       - name: Restore
         run: dotnet restore src/Meltype.Android/Meltype.Android.csproj --source https://api.nuget.org/v3/index.json
 
+      - name: Prepare offline licenses and source manifest
+        run: python3 android/distribution.py prepare --mozc "$HOME/mozc-android" --bazel "$HOME/tools/bazelisk"
+
       - name: Prepare release keystore
         if: steps.config.outputs.signed == 'true'
         run: |
@@ -174,6 +177,21 @@ jobs:
           path: dist/android/
           if-no-files-found: error
 
+      - name: Package corresponding source and dependency notices
+        run: python3 android/distribution.py source --mozc "$HOME/mozc-android" --bazel "$HOME/tools/bazelisk" --version "$APP_VERSION"
+        env:
+          APP_VERSION: ${{ steps.config.outputs.version }}
+
+      - name: Upload corresponding source
+        uses: actions/upload-artifact@v4
+        with:
+          name: meltype-android-source
+          path: |
+            dist/android/*-source.tar.gz*
+            dist/android/DEPENDENCIES.json
+            dist/android/NOTICE.txt
+          if-no-files-found: error
+
       - name: Remove release keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/meltype-release.jks"
@@ -189,6 +207,10 @@ jobs:
         with:
           name: ${{ needs.build.outputs.artifact_name }}
           path: dist/android
+      - uses: actions/download-artifact@v4
+        with:
+          name: meltype-android-source
+          path: dist/android
       - name: Publish Android release
         uses: softprops/action-gh-release@v2
         with:
@@ -199,7 +221,16 @@ jobs:
             Version code: ${{ needs.build.outputs.version_code }}.
             The APK signature and release certificate were verified before upload.
             A SHA-256 checksum is included alongside the APK.
+            Licensed under GNU GPL version 3 or later, without warranty.
+            Corresponding source, dependency source archives and build instructions
+            are in the attached `Meltype-Android-${{ needs.build.outputs.version }}-source.tar.gz`.
+            Open `Meltype/android/README.md` in that archive for build and installation instructions.
+            `DEPENDENCIES.json` records the exact dependency revisions and source URLs;
+            `NOTICE.txt` contains copyright and license notices also available inside the app.
           files: |
             dist/android/*.apk
             dist/android/*.sha256
+            dist/android/*-source.tar.gz
+            dist/android/DEPENDENCIES.json
+            dist/android/NOTICE.txt
           fail_on_unmatched_files: true

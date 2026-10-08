@@ -23,4 +23,9 @@
       <Abi>arm64-v8a</Abi>
     </AndroidNativeLibrary>
   </ItemGroup>
+
+  <Target Name="RequireAndroidLicenses" BeforeTargets="Build">
+    <Error Condition="'$(Configuration)' == 'Release' And !Exists('Assets/licenses/NOTICE.txt')"
+           Text="Generate Android license assets with android/distribution.py prepare before building a Release APK." />
+  </Target>
 </Project>

@@ -1,5 +1,13 @@
 # リリースの手順
 
+## Android fork の Release
+
+Android は `android-v<major.minor.patch>` タグと `.github/workflows/android.yml` を使います。
+4つの署名 Secrets、APK と versionCode の更新、対応ソースと通知の添付手順は [android/README.md](../android/README.md) にあります。
+署名鍵・証明書・ライセンス通知・依存ソースの検証が失敗した場合、公開を停止します。
+公開後は APK に対応する source archive を削除せず、利用者が取得できる状態を維持してください。
+以下は上流の Windows / Mac / Linux 向けの手順です。Android の署名は任意ではなく、APK の配布に必要です。
+
 ## 版を出す (テスト版・公開版共通)
 
 1. 版を上げる: `src/Meltype/Meltype.csproj`・`src/Meltype.Core/Meltype.Core.csproj` の `<Version>`、
@@ -7,6 +15,16 @@
 2. コミットして push し、タグを付けて push: `git tag v0.3.0 && git push origin v0.3.0`
 3. GitHub Actions が Windows (build.yml)・Mac (mac.yml)・Linux (linux.yml) の zip を作り、リリースに添付する。
 4. 公開版 (1.0.0 以降) なら、利用者の Meltype が自動で更新する (Windows)。
+
+## 同梱の .NET の更新
+
+配布物の .NET の版はどこにも固定していない。ビルドのたびに setup-dotnet (`10.0.x`) がその時の最新の SDK・ランタイムを入れ、
+Windows は `Build-Package.ps1` がインストール済みの最新の 10.0 のランタイムを `app\dotnet` に同梱し、Mac・Linux は NativeAOT で組み込む。
+なので .NET に新しいパッチ (セキュリティ修正など) が出たら、コードを変えずに版を上げてリリースし直せばよい。
+
+`.github/workflows/dotnet-update.yml` が毎週水曜日に、最新リリースの Windows の zip に入っている版と Microsoft が公開している最新の版を比べ、
+新しい版が出ていれば「同梱の .NET を <版> に更新する (リリースし直す)」の Issue を立てる (Actions の画面から手動でも実行できる)。
+.NET のメジャー版を上げる (net10.0 → net11.0) ときは、`*.csproj` の `TargetFramework` と workflow の `dotnet-version` を手で変える。
 
 ## コード署名 (任意。1.0.0 の後でよい)
 

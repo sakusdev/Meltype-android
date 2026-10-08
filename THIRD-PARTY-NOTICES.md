@@ -1,12 +1,29 @@
 # サードパーティー通知
 
-Meltype のソースコード (このリポジトリ) には、他者の著作物は含まれていません。
+この fork は雪代 / Yukishiro 氏の Meltype を元にしています。元のコードの GPL-3.0-or-later と著作権表示を保持します。
+また、リポジトリ内の派生辞書・Material アイコン、ビルド時に取り込む第三者部品には以下の個別の条件が適用されます。
+
+## Android APK
+
+| 部品 | ライセンス・通知 | 配布方法 |
+| --- | --- | --- |
+| Meltype.Core と Android IME / Mozc bridge | GPL-3.0-or-later、Copyright (C) 2026 雪代 / Yukishiro and contributors | 元の表示と GPL 本文を保持し、同じ Release に対応ソースを添付 |
+| OSS Mozc と mozc.data | BSD-3-Clause、および IPAdic / NAIST / ICOT・沖縄辞書・Japanese Usage Dictionary の条件 | 固定 commit の LICENSE・credits と実際のネイティブ依存部品の通知を APK に同梱 |
+| .NET runtime / .NET Android / NuGet bindings | MIT 等。各部品の第三者通知も適用 | 解決した版の通知と source revision を自動収集 |
+| Material Components / AndroidX / Kotlin | Apache-2.0 等。Microsoft の bindings は MIT | NuGet が保持する通知と元の Maven の source を配布 |
+| [Material Design Icons](https://github.com/google/material-design-icons) | Apache-2.0、Copyright Google LLC | Android vector drawable へ変換したアイコン。出典と Apache 本文を保持 |
+| 下記の同梱辞書 | CC BY-SA 4.0 / Unicode-3.0 / SCOWL の個別条件 / GPL-3.0-or-later | 出典・変更・本文の通知を同梱。第三者データを一律に GPL へ変更しない |
+
+起動画面の「ライセンスとソース」は通知をオフラインで表示します。
+`Assets/licenses/NOTICE.txt` と `DEPENDENCIES.json` はビルド時に実際の依存関係から生成します。
+対応ソースと点検範囲は [android/LICENSE-COMPLIANCE.md](android/LICENSE-COMPLIANCE.md) を参照してください。
 
 ## 配布用パッケージに同梱しているもの
 
 | 部品 | ライセンス | 同梱先 |
 | --- | --- | --- |
 | .NET ランタイム (Microsoft.NETCore.App, Microsoft.WindowsDesktop.App) | MIT License | `app\dotnet\` (ライセンス: `app\dotnet\LICENSE.txt`、同梱部品の通知: `app\dotnet\ThirdPartyNotices.txt`) |
+| Microsoft Visual C++ のランタイム (`msvcp140.dll`・`vcruntime140.dll` など、Mozc の変換ヘルパーが使うもの。一覧は `app\mozc\VC-RUNTIME.txt`) | Microsoft Visual Studio ソフトウェア ライセンス条項の「再頒布可能コード」(Visual Studio の VC\Redist にあり、REDIST の一覧に載っているファイル。変えずにアプリと一緒に配ることが認められている) | `app\mozc\` |
 | [Mozc](https://github.com/google/mozc) の変換エンジンと辞書 (`meltype_mozc_helper.exe`。Meltype 用の小さな入出力部分 `native/mozc/meltype_mozc_helper.cc` を足してビルドしたもの) | Mozc: BSD-3-Clause (Copyright Google Inc.)。辞書: IPAdic (NAIST)・ICOT・沖縄辞書 のライセンス。組み込みのライブラリ: Abseil (Apache-2.0)・Protocol Buffers (BSD-3-Clause)・Japanese Usage Dictionary など | `app\mozc\` (ライセンス: `app\mozc\MOZC-LICENSE.txt`、辞書とライブラリの全文: `app\mozc\MOZC-CREDITS.html`。Qt は使っていない) |
 
 ## Mac 版 (mac/) がビルド時に取り込むもの
@@ -31,7 +48,7 @@ Meltype のソースコード (このリポジトリ) には、他者の著作�
 
 [JMdict](https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project) (Japanese-Multilingual Dictionary) の英語版から、よく使う語 (ichi1・news1・spec1・spec2・gai1 の印が付いた語) の書き方・品詞・英訳の一部を `tools/make-translations.mjs` で取り出して作りました。
 
-- 著作権: Electronic Dictionary Research and Development Group (EDRDG)
+- 著作権: James William Breen / Electronic Dictionary Research and Development Group (EDRDG)
 - ライセンス: [Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)](https://creativecommons.org/licenses/by-sa/4.0/)。EDRDG のライセンスの説明: https://www.edrdg.org/edrdg/licence.html
 - この派生データ (dictionaries/translations.txt) も CC BY-SA 4.0 です。Meltype のプログラム本体は GPL-3.0-or-later です。
 

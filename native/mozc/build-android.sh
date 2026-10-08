@@ -20,6 +20,11 @@ if [[ ! -d "$mozc/.git" ]]; then
   git -C "$mozc" submodule update -q --init --recursive --depth 1
 fi
 
+if [[ "$(git -C "$mozc" rev-parse HEAD)" != "$commit" ]]; then
+  echo "Mozc checkout differs from MOZC_COMMIT; use a fresh source directory: $mozc" >&2
+  exit 1
+fi
+
 src="$mozc/src"
 cp "$here/android/meltype_mozc_android.cc" "$src/converter/"
 if ! grep -q 'name = "meltype_mozc_android"' "$src/converter/BUILD.bazel"; then

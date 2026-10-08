@@ -29,9 +29,13 @@ native/mozc/bin/
 linux/build/
 tools/data/
 
+native/tip/bin/
+native/tip/obj/
+
 # Android native build outputs and private signing keys
 src/Meltype.Android/jniLibs/
 src/Meltype.Android/Assets/mozc.data
+src/Meltype.Android/Assets/licenses/
 *.jks
 *.keystore
 *.p12

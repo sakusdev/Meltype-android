@@ -83,6 +83,11 @@ public sealed class MainActivity : Activity
         noteParams.SetMargins(Dp(4), Dp(28), Dp(4), 0);
         root.AddView(note, noteParams);
 
+        var licenses = new MaterialButton(this) { Text = "ライセンスとソース" };
+        licenses.SetAllCaps(false);
+        licenses.Click += (_, _) => StartActivity(new Intent(this, typeof(LicensesActivity)));
+        root.AddView(licenses, FullWidthButtonParams());
+
         SetContentView(scroll);
     }
 

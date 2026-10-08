@@ -5,9 +5,20 @@
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
+
+
+def verify_release_certificate(verified, expected):
+    # SDK versions print either "Signer #1" or "V3.0 Signer:". Multiple
+    # schemes can repeat the same certificate; source stamps are not APK signers.
+    certificates = set(re.findall(
+        r"^(?:Signer(?: #\d+| \(.*\))?|V\d+(?:\.\d+)? Signer(?: #\d+)?(?: \(.*\))?):? "
+        r"certificate SHA-256 digest: ([0-9a-fA-F]{64})$", verified, re.MULTILINE))
+    if {digest.lower() for digest in certificates} != {expected.lower()}:
+        raise RuntimeError("APK certificate does not match the configured release keystore")
 
 
 def main():
@@ -30,10 +41,7 @@ def main():
                             "-alias", os.environ["ANDROID_KEY_ALIAS"],
                             "-storepass:env", "ANDROID_KEYSTORE_PASSWORD", "-file", str(certificate)], check=True)
             expected = hashlib.sha256(certificate.read_bytes()).hexdigest()
-        certificates = [line.split(": ", 1)[1].strip().lower() for line in verified.splitlines()
-                        if line.startswith("Signer #1 certificate SHA-256 digest: ")]
-        if certificates != [expected]:
-            raise RuntimeError("APK certificate does not match the configured release keystore")
+        verify_release_certificate(verified, expected)
 
     destination = Path("dist/android")
     destination.mkdir(parents=True, exist_ok=True)

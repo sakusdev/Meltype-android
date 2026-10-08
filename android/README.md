@@ -1,6 +1,7 @@
 # Meltype for Android
 
 Android の正式な IME (`InputMethodService`) として `Meltype.Core` を動かす移植版です。
+元の Meltype は雪代 / Yukishiro 氏の GPL-3.0-or-later のプロジェクトです。この fork でも元の表示と GPL を保持します。
 
 ## 現在の状態
 
@@ -23,6 +24,8 @@ Android の正式な IME (`InputMethodService`) として `Meltype.Core` を動�
 - Android のライト / ダークテーマに合わせた Gboard 系のキー UI
 - ジェスチャーナビゲーション / IME 切替ボタンとの重なりを避ける下部安全余白
 - GitHub Actions で arm64-v8a APK を生成
+- 起動画面から読める GPL・辞書・依存部品のライセンス通知
+- `android-v*` タグで署名 APK と対応ソースを同じ GitHub Release に添付
 
 ## Mozc
 
@@ -53,6 +56,7 @@ GitHub Actions では pinned Mozc source から以下を生成します。
 ## 対応 ABI
 
 現在の CI artifact は `arm64-v8a` 向けです。Pixel など一般的な現行 Android arm64 端末を対象にしています。
+最低 OS は Android 8.0 (API 26) です。実機での検証は別途必要です。
 
 x86_64 emulator などの追加 ABI は今後対応予定です。
 
@@ -62,20 +66,30 @@ x86_64 emulator などの追加 ABI は今後対応予定です。
 
 通常は GitHub Actions の `Android` workflow を利用するのが簡単です。workflow は Mozc bridge と `mozc.data` を生成してから APK を publish します。
 
-Android project 単体の publish は次の形式です（native assets が事前生成されている必要があります）。
+手元でビルドする場合は、先にネイティブ部品と通知を生成します。Linux での例です。
+`bazelisk` は workflow と同じ v1.29.0 を PATH に置いてください。Mozc 側の設定が必要な Android NDK を取得します。
 
 ```bash
 dotnet workload install android
+BAZEL=bazelisk native/mozc/build-android.sh "$HOME/mozc-android"
+dotnet restore src/Meltype.Android/Meltype.Android.csproj
+python3 android/distribution.py prepare --mozc "$HOME/mozc-android" --bazel bazelisk
 dotnet publish src/Meltype.Android/Meltype.Android.csproj \
   -c Release \
   -f net10.0-android \
+  -r android-arm64 \
   -p:AndroidPackageFormat=apk
 ```
+
+この手元の例は開発用のテスト署名を使います。配布用の署名は以下の Secrets を設定した workflow を使用します。
+生成された `Assets/licenses/`・`mozc.data`・`jniLibs/` は Git に追加しません。
+既存の Mozc checkout が `MOZC_COMMIT` と異なる場合は停止するため、別の作業ディレクトリを使ってください。
 
 Android の入力方針・カーソル同期・Unicode 削除と、共通セッションの回帰テストは Android SDK なしでも実行できます。
 
 ```bash
 dotnet run --project src/Meltype.Core.Tests/Meltype.Core.Tests.csproj -c Release
+python3 -m unittest discover -s android/tests -v
 ```
 
 ## 署名済み APK と GitHub Releases
@@ -125,9 +139,17 @@ workflow が成功すると [Releases](https://github.com/sakusdev/Meltype-andro
 
 - `Meltype-Android-0.2.0-arm64-v8a.apk`
 - `Meltype-Android-0.2.0-arm64-v8a.apk.sha256`
+- `Meltype-Android-0.2.0-source.tar.gz` とその `.sha256`
+- `DEPENDENCIES.json` (依存関係の版・source revision・取得 URL)
+- `NOTICE.txt` (同梱部品の著作権・ライセンス通知)
 
 バージョン名はタグから設定し、Android の `versionCode` は `major * 1000000 + minor * 1000 + patch` で設定します（`0.2.0` → `2000`）。更新ではバージョンを上げます。minor / patch は 999 以下にします。
-キーの不足・署名検証の失敗・設定した証明書との不一致があれば、Release 公開は実行しません。
+キーの不足・署名検証の失敗・設定した証明書との不一致・依存ソースや通知の取得失敗があれば、Release 公開は実行しません。
+
+GPL の対応ソースの範囲と点検結果は [LICENSE-COMPLIANCE.md](LICENSE-COMPLIANCE.md) を参照してください。
+同じ Release に APK と source archive を維持します。source archive 内の `Meltype/` から上のコマンドでビルドでき、
+使用した Mozc・依存ライブラリのソースも `third-party/` に含みます。
+私的な変更版は自分の keystore で署名してインストールできます。配布用の秘密鍵の公開は必要ありません。
 
 通常の branch / PR / 手動ビルドは Artifacts に APK を保存します。4 つの署名 Secret が揃っていれば配布用キーを使い、Secret を利用できない fork PR ではテスト署名でビルドします。
 Actions の手動実行では `version` を指定でき、空欄なら project の `ApplicationDisplayVersion` を使います。

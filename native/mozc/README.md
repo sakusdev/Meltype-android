@@ -1,5 +1,12 @@
 # Mozc の変換ヘルパー
 
+## Android 版
+
+Android は `build-android.sh` と `android/` の C ABI bridge を使い、`libmeltype_mozc.so` と OSS `mozc.data` を APK に組み込みます。
+`MOZC_COMMIT` を固定し、その LICENSE / credits と依存部品の通知・ソースも配布します。
+手順は [android/README.md](../../android/README.md)、配布条件は [android/LICENSE-COMPLIANCE.md](../../android/LICENSE-COMPLIANCE.md) を参照してください。
+以下はデスクトップ版の外部プロセスによる変換の説明です。
+
 Meltype の変換エンジン「Mozc」(設定の「変換エンジン」が 両方 / Mozc のとき) は、[Mozc](https://github.com/google/mozc)
 (Google 日本語入力のオープンソース版、BSD-3-Clause) の変換エンジンを使う小さなプログラム `meltype_mozc_helper.exe` を別のプロセスで動かして使います。
 

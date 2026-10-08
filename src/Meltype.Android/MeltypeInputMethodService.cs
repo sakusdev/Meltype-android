@@ -999,7 +999,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         try
         {
-            RequestShowSelf(ShowFlags.Implicit);
+            if (OperatingSystem.IsAndroidVersionAtLeast(28))
+                RequestShowSelf(ShowFlags.Implicit);
+            else
+                ShowWindow(true);
         }
         catch (Exception ex)
         {

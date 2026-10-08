@@ -2,6 +2,14 @@
 
 ソースからのビルド、テスト、動作の仕組みです。使い方は [USAGE.md](USAGE.md)、貢献の方法は [CONTRIBUTING.md](../CONTRIBUTING.md)、リリースの手順は [RELEASE.md](RELEASE.md)。
 
+## この fork の Android 版
+
+Android のビルドと実機へのインストールは [android/README.md](../android/README.md) を参照してください。
+`src/Meltype.Android/` が .NET 10 の `InputMethodService` とキー UI、`native/mozc/android/` が C ABI bridge、
+`android/` が署名・versionCode・通知・対応ソースの配布処理です。以下の Windows 向け手順とは別です。
+`Meltype.Core` は Android を含む各 OS で共有します。テストは `dotnet run --project src/Meltype.Core.Tests -c Release` と
+`python3 -m unittest discover -s android/tests -v` で実行します。
+
 ## ソースからビルドして入れる
 
 ```powershell
@@ -19,6 +27,8 @@ powershell -ExecutionPolicy Bypass -File .\Uninstall-Meltype.ps1 -RemoveData # �
 ```
 
 必要なもの: Windows 10 / 11 (x64 / ARM64)、.NET 10 SDK、Microsoft IME (漢字変換に使います)。
+Meltype IME (入力欄に直接入力) も入れるときは、Visual Studio Build Tools の「C++ によるデスクトップ開発」(MSVC と Windows SDK) も要ります (無ければ Meltype IME を入れずに続けます。ARM64 では入れません)。
+アンインストール (`Uninstall-Meltype.ps1`) では、Meltype IME の登録も外します (登録してあれば、管理者権限の確認が出ます)。
 
 ## 協力者に渡すテスト版
 

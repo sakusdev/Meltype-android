@@ -1,106 +1,76 @@
-# Meltype
+# Meltype for Android
 
-**雪解けのように、半角/全角の壁を溶かす日本語入力。**
+ローマ字のまま日本語と英語を混ぜて入力できる、Android 用の日本語キーボードです。
+[雪代 / Yukishiro 氏の Meltype](https://github.com/yksr-melt/Meltype) を元に、Android の入力方法として移植しています。
 
-半角/全角 キーを押さなくても、日本語と英語を打ち分けられるようにする Windows 常駐ツールです。
-(開発中は AutoIME という仮の名前でした。以前の設定と学習データは、Meltype の初回起動時に自動で引き継ぎます)
-
-Windows 版のほか、Mac 版・Linux 版のプレビュー版があります ([mac/README.md](mac/README.md)。Linux 版は IBus のエンジン)。プレビュー版は、まだ一部の機能が無く、動きも変わることがあります。
-
-## できること
-
-- 半角/全角 キーを押さずに、ローマ字のまま日本語と英語を混ぜて打てます (`kyouhagoogledekensaku` → 今日はgoogleで検索)
-- 日本語は変換ボックスでかな・漢字に変換し、英単語 (`google` `github` `hello` …) は自動で英字のまま
-- 英文 (`I want to go to the park`) も、そのまま打てます
-- 絵文字・顔文字の変換 (えがお → 😊)、よくある書き間違いの指摘 (ブレスレッド → ブレスレット)
-- VS Code やターミナルでは基本は英数、コメントや文字列の中だけ日本語
-- 打った内容をネットワークに送りません。判定・変換はすべて PC の中で行います
+**開発中のプレビュー版です。Android 8.0 以降・arm64-v8a の端末に対応します。**
+実機での入力・表示・安定性の確認は引き続き必要です。32bit ARM と x86_64 エミュレーター用の APK は提供していません。
 
 ## インストール
 
-1. [Releases](https://github.com/yksr-melt/Meltype/releases) から `Meltype-<version>-windows.zip` をダウンロードして展開する
-   (Mac 版は `Meltype-<version>-mac.zip`、Linux 版は `Meltype-<version>-linux.zip`。どちらもプレビュー版)
-2. `Install.cmd` をダブルクリックする (管理者権限は不要)
-   - Meltype はコード署名をしていないので、「Windows によって PC が保護されました」と出ることがあります。「詳細情報」→「実行」で入れられます。
-   - 「ウイルスを検出しました」などの脅威検出は、上の SmartScreen の警告とは別です。誤検知の可能性もありますが、検出名だけでは判断できません。Windows セキュリティ →「ウイルスと脅威の防止」→「保護の更新」で定義を更新し、公式リリースを再ダウンロードして再検査してください。引き続き検出される場合は、保護を無効にしたりフォルダーを除外したりせず、「保護の履歴」で検出名・影響を受けた項目を確認し、版と検出名を [Issues](https://github.com/yksr-melt/Meltype/issues) に報告してください (個人名・パス・ダウンロード URL の一時トークンは隠してください)。
-   - ダウンロードした zip が本物か確かめたいときは、リリースのページに出ている SHA-256 と比べてください (PowerShell: `Get-FileHash .\Meltype-<version>-windows.zip`)。
-3. タスクトレイに「あ」のアイコンが出れば動いています。Windows の起動時にも自動で起動します。
+1. このリポジトリの [Releases](https://github.com/sakusdev/Meltype-android/releases) で、`android-v` から始まる版の `Meltype-Android-<version>-arm64-v8a.apk` を取得します。
+2. ダウンロードに使ったブラウザー／ファイルアプリに、Android の設定で APK のインストールを許可してインストールします。
+3. Meltype for Android を開き、「入力方法の設定を開く」で Meltype を有効にします。
+4. アプリへ戻り、「Meltype に切り替える」でキーボードを選びます。
 
-1.0.0 以降は、新しい版が出ると自動で更新します (トレイのアイコンを右クリック →「更新」→「自動で更新する」で止められます)。
-アンインストールは、トレイの Meltype のアイコンを右クリック →「アンインストール...」か、Windows の「設定」→「アプリ」→「インストールされているアプリ」で Meltype の「…」→「アンインストール」を選びます (設定と学習データも消えます)。zip の中の `Uninstall.cmd` をダブルクリックしても同じです。
+Android のキーボードに関する確認画面は、入力方法を有効にする際の OS の案内です。
+本アプリには、入力内容をネットワークへ送信する機能はありません。
 
-必要なもの: Windows 10 / 11 (64bit)、Microsoft IME (Windows 標準の日本語入力)。.NET は同梱しているので、別に入れる必要はありません。
+同じ配布用キーで署名され、versionCode が上がった APK なら更新できます。
+以前の CI のテスト署名 APK から切り替える場合は、旧版のアンインストールが必要です。その際、端末内の設定・学習データは削除されます。
+APK の SHA-256 は同じ Release の `.apk.sha256` と比較できます。
 
-## 使い始める
+## 入力する
 
-メモ帳やブラウザーの入力欄で、IME を気にせずそのままローマ字で打ってください。
+- **かな / ABC** で日本語の自動判定と直接入力を切り替えます。
+- ローマ字入力中、**Space** で漢字変換し、候補バーで候補を選びます。
+- **Enter / Search / Send / Next / Done** は、変換中なら確定し、未変換なら入力欄のアクションを実行します。
+- 変換中の **← / →** は文節を選びます。Space の左右スワイプは、文字を確定してから入力欄のカーソルを動かします。
+- Backspace は選択範囲、絵文字、結合文字を考慮して削除します。長押しで連続削除します。
+- 絵文字・クリップボード貼り付け、Shift、長押し数字入力に対応します。
 
-- 日本語はかなで、英単語は英字のまま、カーソルの下の変換ボックスに出ます
-- **Enter** で確定、**Space** で漢字に変換 (英単語のときは確定して空白)
-- 変換中は ← → で文節を選び、Space / ↓ で候補を切り替え
-- **F7** でカタカナ、**F10** で英字。英字にして確定した語は、次から英字になります
-- **半角/全角** で英数 (そのまま入力) ⇔ 日本語、**Ctrl + 半角/全角** で Meltype 自体の一時停止 / 再開
-- よく使う言葉は、トレイのアイコンを右クリック →「ユーザー辞書...」で登録できます
-
-詳しい使い方 (キー操作・判定の強さ・かな入力・コードエディター・設定など) は [docs/USAGE.md](docs/USAGE.md) にあります。
-
-## よくある質問
-
-**タスクバーの IME の表示がずっと「A」のまま**
-Meltype が Windows の IME を OFF にして、代わりに入力を受け持っているためです (故障ではありません)。今のモードは、入力欄に入ったときにカーソルの近くに出る「あ」「A」か、タスクトレイの Meltype のアイコンで分かります。
-
-**Google 日本語入力など、ほかの IME も使いたい**
-Ctrl + 半角/全角 で Meltype を一時停止してから使ってください。
-
-**英語のつもりがかなになった / かなのつもりが英字になった**
-F10 (英字) / F6 (ひらがな) で直して確定すると、次からその語は直した方になります。トレイの右クリック →「自動判定の強さ」でも調整できます。
-
-**おかしな動きを見つけた**
-トレイのアイコンを右クリック →「不具合の報告・提案...」から報告できます。「どのアプリで」「何と打って」「どうなったか」を書いてもらえると助かります。
+変換は端末内の `Meltype.Core` と OSS Mozc で行います。Mozc が初期化できない場合は、簡易変換へフォールバックします。
+PC 版のトレイメニュー・Windows IME 切替・自動更新などを、そのまま Android で提供するものではありません。
 
 ## プライバシー
 
-Meltype はキーボードの入力を監視して動くツールですが、打った内容をネットワークに送ることはありません。 セキュリティの方針と脆弱性の報告先は [SECURITY.md](SECURITY.md)。通信するのは、自動更新で GitHub に新しい版があるかを確かめるとき (送るのは今の版だけ) と、自分で開いた不具合報告のフォームだけです。
-保存するのは `%LOCALAPPDATA%\Meltype` の設定・学習データ・ユーザー辞書と、ファイルログを ON にしたときのログだけです。
+設定・学習データはアプリの領域に保存します。
+パスワード欄は直接入力にし、候補・キーの拡大プレビュー・学習を停止します。
+入力先が `IME_FLAG_NO_PERSONALIZED_LEARNING` を指定した場合も、Meltype / Mozc の学習保存を停止し、日本語変換は利用できます。
+ログを報告する場合は、入力内容や個人情報が含まれていないか確認してください。詳しくは [SECURITY.md](SECURITY.md)。
 
-## ライセンス
+## ビルドと署名 Release
 
-Meltype は **GNU General Public License v3.0** ([LICENSE](LICENSE)) で公開しています。
+ビルド、4つの署名 Secrets の登録、タグの付け方は [android/README.md](android/README.md) にあります。
+`android-v0.2.0` のようなタグを push すると、GitHub Actions が署名と証明書を検証し、APK・チェックサム・対応ソース・通知を同じ Release に添付します。
+配布用の署名設定が不足していれば、Release 公開は停止します。
+通常の branch / PR ビルドの APK は [Actions](https://github.com/sakusdev/Meltype-android/actions/workflows/android.yml) の Artifacts に保存されます。
 
-- 個人・会社でそのまま使う、GPL v3 の条件 (改造版もソースを公開) で改造・再配布する → 無料で自由に使えます
-- GPL v3 の条件で使えない場合 (製品に組み込んでソースを公開せずに配布したいなど、非公開で利用したい場合) は、メールでご相談ください: ibutya0319@gmail.com
+共通ロジックと Android の入力方針のテストは Android SDK なしでも実行できます。
 
-貢献の方法と貢献者ライセンス同意 (CLA) は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
-
-ソースファイルの先頭には `SPDX-License-Identifier: GPL-3.0-or-later` を付けています。配布用パッケージに同梱している .NET ランタイム (MIT ライセンス) と、実行時に使う Windows の機能は [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) を参照してください。アプリのバージョン・著作権・ライセンスは、トレイの「Meltype について...」で確認できます。
-
-```
-Meltype
-Copyright (C) 2026 雪代 / Yukishiro (@yksr_melt / @yksr-melt)
-
-This program is free software: you can redistribute it and/or modify it under the terms of the
-GNU General Public License as published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
-even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-General Public License for more details.
+```bash
+dotnet run --project src/Meltype.Core.Tests/Meltype.Core.Tests.csproj -c Release
+python3 -m unittest discover -s android/tests -v
 ```
 
-## 協力してくださった方々
+## ライセンスと出典
 
-テスト版を使って、不具合の報告や意見をくださった方々です。ありがとうございました (敬称略)。
+プログラムは **GNU GPL version 3 or later (GPL-3.0-or-later)** です。元作者の著作権表示を保持しています。
+個人・社内で使え、変更・再配布も GPL の条件に従って行えます。私的な変更に一般公開の義務はありません。
+配布する APK には GPL 本文・著作権・第三者通知を同梱し、起動画面の「ライセンスとソース」から閲覧できます。
 
-- くらいど！ ([@Kuraido8888](https://x.com/Kuraido8888))
-- しぐれ ([@Akisameee0465](https://x.com/Akisameee0465))
-- 琴音Link
-- あげちゃ
-- うな ([@una08142009](https://x.com/una08142009))
-- かふぇらて ([@cafely_latte](https://x.com/cafely_latte))
-- ウパー ([@upah_setu](https://x.com/upah_setu))
-- Ray
-- うぽつです ([@up2ds](https://x.com/up2ds))
+- [LICENSE](LICENSE): GPL v3 本文
+- [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md): Mozc・辞書・ランタイム・UI 部品の出典と個別の条件
+- [android/LICENSE-COMPLIANCE.md](android/LICENSE-COMPLIANCE.md): 確認内容と対応ソースの配布方法
 
-## 開発に参加する
+Mozc、Material Design Icons、JMdict などの第三者コード・データには、それぞれのライセンスが引き続き適用されます。
+Google 日本語入力の非公開辞書を使用していません。
+Android 移植と入力処理・署名・ライセンス配布の変更を追加しています (2026-10-08 UTC)。
 
-ソースからのビルド・テスト・動作の仕組みは [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)、不具合の報告・辞書の追加・Pull Request の送り方は [CONTRIBUTING.md](CONTRIBUTING.md) を見てください。
+## 不具合の報告と開発
+
+Android 版の報告は [この fork の Issues](https://github.com/sakusdev/Meltype-android/issues) へ、APK の版、Android の版、端末、入力先アプリ、入力手順と期待した結果を記載してください。
+コード・文書の貢献は [CONTRIBUTING.md](CONTRIBUTING.md)、構成は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) を参照してください。
+
+Windows / Mac / Linux 版の案内と協力者一覧は [上流 README](docs/UPSTREAM-README.md) に保持しています。
+デスクトップ版の公式配布先は [元の Meltype リポジトリ](https://github.com/yksr-melt/Meltype) です。
