@@ -64,7 +64,7 @@ def maven_source(coordinate):
 
 def notice_files(directory):
     return sorted(path for path in directory.rglob("*") if path.is_file()
-                  and re.match(r"(?:license|licence|notice|third.party.notices|copying)(?:[._-]|$)",
+                  and re.match(r"(?:license|licence|notice|third[-_.]?party[-_.]?notices|copying)(?:[._-]|$)",
                                path.name, re.IGNORECASE)
                   and path.suffix.lower() not in (".dll", ".so", ".jar", ".zip"))
 
@@ -207,7 +207,8 @@ def prepare(mozc, bazel):
         notices.append(f"\n\n=== Mono runtime {file.name} ===\n" + file.read_text(encoding="utf-8-sig"))
     if not runtime_notices:
         base = repository.get("url", "").removesuffix(".git").replace("https://github.com/", "https://raw.githubusercontent.com/")
-        for name in ("LICENSE.TXT", "THIRD-PARTY-NOTICES.TXT"):
+        third_party = "THIRD-PARTY-NOTICES.txt" if repository.get("url", "").removesuffix(".git").endswith("/dotnet/dotnet") else "THIRD-PARTY-NOTICES.TXT"
+        for name in ("LICENSE.TXT", third_party):
             with urllib.request.urlopen(f"{base}/{repository.get('commit')}/{name}", timeout=30) as response:
                 notices.append(f"\n\n=== Mono runtime {name} ===\n" + response.read().decode("utf-8-sig"))
 
