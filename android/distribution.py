@@ -166,10 +166,15 @@ def prepare(mozc, bazel):
     # exact NuGet repository revision as well, even though it is a workload pack.
     dotnet_root = Path(os.environ.get("DOTNET_ROOT") or Path(shutil.which("dotnet")).resolve().parent)
     framework = next(iter(assets["project"]["frameworks"]))
-    target = re.fullmatch(r"net(\d+)\.\d+-android(\d+)\.\d+", framework)
+    target = re.match(r"net(\d+)\.\d+-android", framework)
     if target is None:
         raise RuntimeError(f"Unsupported Android framework: {framework}")
-    sdk_version = workload_pack(dotnet_root, "Microsoft.Android.Sdk.Linux", target[2]).name
+    # assets.json keeps the alias (net10.0-android) without its inferred API.
+    # Ask the same MSBuild SDK resolver used by publish for that API version.
+    platform_version = subprocess.check_output(
+        ["dotnet", "msbuild", str(PROJECT / "src/Meltype.Android/Meltype.Android.csproj"),
+         "-getProperty:TargetPlatformVersion"], text=True).strip()
+    sdk_version = workload_pack(dotnet_root, "Microsoft.Android.Sdk.Linux", platform_version.split(".")[0]).name
     sdk_id = "microsoft.android.sdk.linux"
     url = f"https://api.nuget.org/v3-flatcontainer/{sdk_id}/{sdk_version}/{sdk_id}.nuspec"
     with urllib.request.urlopen(url, timeout=30) as response:
