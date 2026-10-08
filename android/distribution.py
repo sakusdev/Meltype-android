@@ -69,6 +69,14 @@ def notice_files(directory):
                   and path.suffix.lower() not in (".dll", ".so", ".jar", ".zip"))
 
 
+def workload_pack(dotnet_root, identity, major):
+    packs = [path for path in (dotnet_root / "packs" / identity).glob("*")
+             if path.name.split(".")[0] == str(major)]
+    if not packs:
+        raise RuntimeError(f"Required workload pack is missing: {identity} {major}")
+    return max(packs, key=lambda path: tuple(int(part) for part in path.name.split(".")))
+
+
 def native_directories(mozc, bazel):
     base = Path(subprocess.check_output([bazel, "info", "output_base"], cwd=mozc / "src", text=True).strip())
     external = base / "external"
@@ -157,10 +165,11 @@ def prepare(mozc, bazel):
     # The Android SDK adds Java/native runtime glue to the APK. Preserve its
     # exact NuGet repository revision as well, even though it is a workload pack.
     dotnet_root = Path(os.environ.get("DOTNET_ROOT") or Path(shutil.which("dotnet")).resolve().parent)
-    sdk_packs = list((dotnet_root / "packs/Microsoft.Android.Sdk.Linux").glob("*"))
-    if len(sdk_packs) != 1:
-        raise RuntimeError("Expected one installed .NET Android SDK pack")
-    sdk_version = sdk_packs[0].name
+    framework = next(iter(assets["project"]["frameworks"]))
+    target = re.fullmatch(r"net(\d+)\.\d+-android(\d+)\.\d+", framework)
+    if target is None:
+        raise RuntimeError(f"Unsupported Android framework: {framework}")
+    sdk_version = workload_pack(dotnet_root, "Microsoft.Android.Sdk.Linux", target[2]).name
     sdk_id = "microsoft.android.sdk.linux"
     url = f"https://api.nuget.org/v3-flatcontainer/{sdk_id}/{sdk_version}/{sdk_id}.nuspec"
     with urllib.request.urlopen(url, timeout=30) as response:
@@ -175,6 +184,27 @@ def prepare(mozc, bazel):
     for name in ("LICENSE.TXT", "THIRD-PARTY-NOTICES.TXT"):
         with urllib.request.urlopen(f"{base}/{repository.get('commit')}/{name}", timeout=30) as response:
             notices.append(f"\n\n=== .NET Android SDK {name} ===\n" + response.read().decode("utf-8-sig"))
+
+    # The self-contained Mono runtime can be supplied by workload packs without
+    # appearing in project.assets.json's ordinary package references.
+    runtime = workload_pack(dotnet_root, "Microsoft.NETCore.App.Runtime.Mono.android-arm64", target[1])
+    runtime_id = "microsoft.netcore.app.runtime.mono.android-arm64"
+    with urllib.request.urlopen(f"https://api.nuget.org/v3-flatcontainer/{runtime_id}/{runtime.name}/{runtime_id}.nuspec", timeout=30) as response:
+        runtime_metadata = ET.fromstring(response.read())
+    repository = runtime_metadata.find(".//{*}repository")
+    if repository is None:
+        raise RuntimeError("Mono runtime source revision is missing")
+    sources.append({"package": f"{runtime_id}/{runtime.name}", "license": "MIT",
+                    "repository": repository.attrib,
+                    "source": repository_source(repository.get("url", ""), repository.get("commit", ""))})
+    runtime_notices = notice_files(runtime)
+    for file in runtime_notices:
+        notices.append(f"\n\n=== Mono runtime {file.name} ===\n" + file.read_text(encoding="utf-8-sig"))
+    if not runtime_notices:
+        base = repository.get("url", "").removesuffix(".git").replace("https://github.com/", "https://raw.githubusercontent.com/")
+        for name in ("LICENSE.TXT", "THIRD-PARTY-NOTICES.TXT"):
+            with urllib.request.urlopen(f"{base}/{repository.get('commit')}/{name}", timeout=30) as response:
+                notices.append(f"\n\n=== Mono runtime {name} ===\n" + response.read().decode("utf-8-sig"))
 
     for directory in native_directories(mozc, bazel):
         for file in notice_files(directory):

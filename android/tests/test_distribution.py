@@ -10,10 +10,19 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from distribution import HtmlText, add_git_source, maven_source, native_directories, repository_source
+from distribution import HtmlText, add_git_source, maven_source, native_directories, repository_source, workload_pack
 
 
 class DistributionTests(unittest.TestCase):
+    def test_workload_pack_matches_the_target_when_multiple_sdks_are_installed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for version in ("35.0.105", "36.1.69", "36.0.10"):
+                (root / "packs/Microsoft.Android.Sdk.Linux" / version).mkdir(parents=True)
+            self.assertEqual(workload_pack(root, "Microsoft.Android.Sdk.Linux", 36).name, "36.1.69")
+            with self.assertRaises(RuntimeError):
+                workload_pack(root, "Microsoft.Android.Sdk.Linux", 37)
+
     def test_repository_sources_use_an_immutable_commit(self):
         sha = "a" * 40
         self.assertEqual(repository_source("https://github.com/dotnet/android-libraries.git", sha),
