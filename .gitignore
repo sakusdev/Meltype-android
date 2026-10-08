@@ -28,3 +28,14 @@ mac/build/
 native/mozc/bin/
 linux/build/
 tools/data/
+
+# Android native build outputs and private signing keys
+src/Meltype.Android/jniLibs/
+src/Meltype.Android/Assets/mozc.data
+*.jks
+*.keystore
+*.p12
+
+# Python release helpers
+__pycache__/
+*.pyc

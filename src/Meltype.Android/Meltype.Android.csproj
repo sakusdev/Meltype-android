@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="Exists('jniLibs/arm64-v8a/libmeltype_mozc.so')">
-    <AndroidNativeLibrary Include="jniLibs/arm64-v8a/libmeltype_mozc.so">
+    <AndroidNativeLibrary Update="jniLibs/arm64-v8a/libmeltype_mozc.so">
       <Abi>arm64-v8a</Abi>
     </AndroidNativeLibrary>
   </ItemGroup>

@@ -5,7 +5,10 @@ on:
     branches:
       - main
       - work/android-ime
+    tags:
+      - "android-v*"
     paths:
+      - "android/**"
       - "src/Meltype.Android/**"
       - "src/Meltype.Core/**"
       - "native/mozc/**"
@@ -13,20 +16,50 @@ on:
       - ".github/workflows/android.yml"
   pull_request:
     paths:
+      - "android/**"
       - "src/Meltype.Android/**"
       - "src/Meltype.Core/**"
       - "native/mozc/**"
       - "dictionaries/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "APK version (major.minor.patch; blank uses the project version)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.config.outputs.version }}
+      version_code: ${{ steps.config.outputs.version_code }}
+      release: ${{ steps.config.outputs.release }}
+      signed: ${{ steps.config.outputs.signed }}
+      tag: ${{ steps.config.outputs.tag }}
+      artifact_name: ${{ steps.config.outputs.artifact_name }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Test release configuration
+        run: python3 -m unittest discover -s android/tests -v
+
+      - name: Version and signing configuration
+        id: config
+        run: python3 android/release_config.py
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -71,17 +104,50 @@ jobs:
       - name: Restore
         run: dotnet restore src/Meltype.Android/Meltype.Android.csproj --source https://api.nuget.org/v3/index.json
 
+      - name: Prepare release keystore
+        if: steps.config.outputs.signed == 'true'
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          key = Path(os.environ['RUNNER_TEMP']) / 'meltype-release.jks'
+          key.write_bytes(base64.b64decode(''.join(os.environ['ANDROID_KEYSTORE_BASE64'].split()), validate=True))
+          key.chmod(0o600)
+          PY
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
       - name: Publish APK
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
+          signing_args=()
+          if [[ "$RELEASE_SIGNED" == "true" ]]; then
+            signing_args=(
+              -p:AndroidKeyStore=true
+              "-p:AndroidSigningKeyStore=$RUNNER_TEMP/meltype-release.jks"
+              "-p:AndroidSigningKeyAlias=$ANDROID_KEY_ALIAS"
+              -p:AndroidSigningKeyPass=env:ANDROID_KEY_PASSWORD
+              -p:AndroidSigningStorePass=env:ANDROID_KEYSTORE_PASSWORD
+            )
+          fi
           dotnet publish src/Meltype.Android/Meltype.Android.csproj \
             -c Release \
             -f net10.0-android \
             -r android-arm64 \
             --source https://api.nuget.org/v3/index.json \
             -p:AndroidPackageFormat=apk \
+            "-p:ApplicationDisplayVersion=$APP_VERSION" \
+            "-p:ApplicationVersion=$APP_VERSION_CODE" \
+            "${signing_args[@]}" \
             2>&1 | tee publish.log
+        env:
+          RELEASE_SIGNED: ${{ steps.config.outputs.signed }}
+          APP_VERSION: ${{ steps.config.outputs.version }}
+          APP_VERSION_CODE: ${{ steps.config.outputs.version_code }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
 
       - name: Upload Android publish log
         if: always()
@@ -92,9 +158,48 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+      - name: Verify and package signed APK
+        run: python3 android/package_apk.py
+        env:
+          RELEASE_SIGNED: ${{ steps.config.outputs.signed }}
+          APK_NAME: ${{ steps.config.outputs.apk_name }}
+          SIGNING_KEYSTORE: ${{ runner.temp }}/meltype-release.jks
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: meltype-android-arm64-apk
-          path: src/Meltype.Android/bin/Release/net10.0-android/android-arm64/publish/*.apk
+          name: ${{ steps.config.outputs.artifact_name }}
+          path: dist/android/
           if-no-files-found: error
+
+      - name: Remove release keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/meltype-release.jks"
+
+  release:
+    needs: build
+    if: needs.build.outputs.release == 'true' && needs.build.outputs.signed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: dist/android
+      - name: Publish Android release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: Meltype for Android ${{ needs.build.outputs.version }}
+          body: |
+            Signed Meltype Android IME APK for arm64-v8a (Android 8.0 or newer).
+            Version code: ${{ needs.build.outputs.version_code }}.
+            The APK signature and release certificate were verified before upload.
+            A SHA-256 checksum is included alongside the APK.
+          files: |
+            dist/android/*.apk
+            dist/android/*.sha256
+          fail_on_unmatched_files: true

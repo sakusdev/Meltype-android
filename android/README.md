@@ -78,6 +78,60 @@ Android の入力方針・カーソル同期・Unicode 削除と、共通セッ�
 dotnet run --project src/Meltype.Core.Tests/Meltype.Core.Tests.csproj -c Release
 ```
 
+## 署名済み APK と GitHub Releases
+
+`android-v0.2.0` のような **Android 専用タグ**を push すると、固定の配布用キーで署名した APK と SHA-256 チェックサムを GitHub Releases に添付します。
+Windows 版の `v*` タグとは別のタグを使います。タグは Android 実装とこの workflow を含むコミットに付けてください（現在は `work/android-ime`）。
+
+### 初回の署名設定
+
+既存の配布用 keystore がある場合は、そのキーを使います。新規作成する場合は Java の `keytool` で作成できます。
+パスワードはコマンドの対話入力で指定します。
+
+```bash
+keytool -genkeypair -v -storetype JKS \
+  -keystore meltype-android-release.jks -alias meltype \
+  -keyalg RSA -keysize 3072 -validity 10000
+```
+
+[Repository settings → Secrets and variables → Actions](https://github.com/sakusdev/Meltype-android/settings/secrets/actions) に次の Repository Secrets を登録します。
+
+| Secret | 値 |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | keystore ファイル全体の Base64 |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore のパスワード |
+| `ANDROID_KEY_ALIAS` | キーの alias（上の例では `meltype`） |
+| `ANDROID_KEY_PASSWORD` | キーのパスワード（同じパスワードなら keystore と同じ値） |
+
+Base64 は Linux では `base64 -w 0 meltype-android-release.jks`、Windows PowerShell では次で取得できます。
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path './meltype-android-release.jks')))
+```
+
+配布用 keystore とパスワードは保管し、更新時も同じキーを使います。keystore は Git に追加しません。
+以前の CI のテスト署名 APK が入っている端末では、配布用キーへ切り替える初回だけ旧 APK のアンインストールが必要です（その際、端末内の Meltype の設定・学習データは削除されます）。
+
+### 公開
+
+```bash
+git switch work/android-ime
+git pull --ff-only
+git tag android-v0.2.0
+git push origin android-v0.2.0
+```
+
+workflow が成功すると [Releases](https://github.com/sakusdev/Meltype-android/releases) に次を添付します。
+
+- `Meltype-Android-0.2.0-arm64-v8a.apk`
+- `Meltype-Android-0.2.0-arm64-v8a.apk.sha256`
+
+バージョン名はタグから設定し、Android の `versionCode` は `major * 1000000 + minor * 1000 + patch` で設定します（`0.2.0` → `2000`）。更新ではバージョンを上げます。minor / patch は 999 以下にします。
+キーの不足・署名検証の失敗・設定した証明書との不一致があれば、Release 公開は実行しません。
+
+通常の branch / PR / 手動ビルドは Artifacts に APK を保存します。4 つの署名 Secret が揃っていれば配布用キーを使い、Secret を利用できない fork PR ではテスト署名でビルドします。
+Actions の手動実行では `version` を指定でき、空欄なら project の `ApplicationDisplayVersion` を使います。
+
 ## インストール後
 
 1. Meltype for Android を開く
