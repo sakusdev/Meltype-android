@@ -1,0 +1,26 @@
+# Meltype Android C ABI bridge. Appended to Mozc's converter/BUILD.bazel so
+# converter-private dependencies remain accessible.
+mozc_cc_binary(
+    name = "meltype_mozc_android",
+    srcs = ["meltype_mozc_android.cc"],
+    linkopts = [
+        "-Wl,-z,max-page-size=16384",
+    ],
+    linkshared = 1,
+    target_compatible_with = ["@platforms//os:android"],
+    visibility = ["//android/jni:__pkg__"],
+    deps = [
+        ":converter_interface",
+        ":segments",
+        "//base:system_util",
+        "//base:util",
+        "//composer",
+        "//config:config_handler",
+        "//data_manager",
+        "//engine",
+        "//protocol:commands_cc_proto",
+        "//protocol:config_cc_proto",
+        "//request:conversion_request",
+        "@com_google_absl//absl/strings",
+    ],
+)

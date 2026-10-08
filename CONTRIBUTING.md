@@ -1,5 +1,13 @@
 # Meltype への貢献
 
+## Android fork への貢献
+
+このリポジトリは `sakusdev/Meltype-android` です。Android の不具合・Pull Request は
+[この fork](https://github.com/sakusdev/Meltype-android) へ送ってください。
+`dotnet run --project src/Meltype.Core.Tests -c Release` と `python3 -m unittest discover -s android/tests -v` で確認し、
+IME の変更は実機のアプリ・入力欄でも確認してください。配布条件と通知は [android/LICENSE-COMPLIANCE.md](android/LICENSE-COMPLIANCE.md) を参照してください。
+以下には上流の貢献方法と CLA の説明を保持しています。上流作者の個別許諾や CLA が、この fork の全変更を非 GPL で配布する権利を自動で与えるものではありません。
+
 不具合の報告・辞書の追加・改善の提案を歓迎します。
 参加するときは [行動規範](CODE_OF_CONDUCT.md) を守ってください。
 

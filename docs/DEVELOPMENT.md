@@ -2,6 +2,14 @@
 
 ソースからのビルド、テスト、動作の仕組みです。使い方は [USAGE.md](USAGE.md)、貢献の方法は [CONTRIBUTING.md](../CONTRIBUTING.md)、リリースの手順は [RELEASE.md](RELEASE.md)。
 
+## この fork の Android 版
+
+Android のビルドと実機へのインストールは [android/README.md](../android/README.md) を参照してください。
+`src/Meltype.Android/` が .NET 10 の `InputMethodService` とキー UI、`native/mozc/android/` が C ABI bridge、
+`android/` が署名・versionCode・通知・対応ソースの配布処理です。以下の Windows 向け手順とは別です。
+`Meltype.Core` は Android を含む各 OS で共有します。テストは `dotnet run --project src/Meltype.Core.Tests -c Release` と
+`python3 -m unittest discover -s android/tests -v` で実行します。
+
 ## ソースからビルドして入れる
 
 ```powershell

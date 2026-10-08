@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<resources>
+  <style name="MeltypeTheme" parent="Theme.Material3.DayNight.NoActionBar">
+    <item name="colorPrimary">#7656A8</item>
+    <item name="colorOnPrimary">#FFFFFF</item>
+    <item name="colorPrimaryContainer">#EADDFF</item>
+    <item name="colorOnPrimaryContainer">#21005D</item>
+    <item name="colorSurface">#F3F3F3</item>
+    <item name="colorOnSurface">#202124</item>
+    <item name="colorSurfaceVariant">#DADCE0</item>
+    <item name="colorOnSurfaceVariant">#5F6368</item>
+    <item name="colorOutline">#8A8D91</item>
+    <item name="android:windowActionModeOverlay">true</item>
+    <item name="android:fontFamily">sans</item>
+  </style>
+</resources>

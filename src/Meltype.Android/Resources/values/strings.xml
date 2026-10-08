@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Meltype for Android</string>
+    <string name="ime_name">Meltype</string>
+    <string name="subtype_japanese">日本語</string>
+</resources>

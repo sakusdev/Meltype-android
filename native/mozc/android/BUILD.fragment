@@ -1,0 +1,7 @@
+# Cross-build the converter-package shared library as Android arm64-v8a.
+cross_build_binary(
+    name = "meltype_mozc.arm64",
+    cpu = "arm64-v8a",
+    platform = ":arm64-v8a",
+    target = "//converter:meltype_mozc_android",
+)

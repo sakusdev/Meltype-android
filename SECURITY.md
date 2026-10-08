@@ -1,5 +1,16 @@
 # セキュリティについて
 
+## Android fork
+
+Android 版は OS の入力方法として動き、入力した文字のネットワーク送信機能はありません。
+設定・Meltype の学習と Mozc の profile はアプリの領域へ保存します。
+パスワード欄では直接入力にし、候補・キーの拡大表示・学習を停止します。
+`IME_FLAG_NO_PERSONALIZED_LEARNING` の入力欄でも学習・入力内容のファイルログを停止します。
+ログを提供する前に、入力内容・個人情報を除いてください。
+
+Android 固有の脆弱性は [この fork の非公開報告](https://github.com/sakusdev/Meltype-android/security/advisories/new) へ報告してください。
+下記の Windows の権限・更新処理・メール窓口は上流版の説明です。
+
 Meltype はキーボードの入力を扱うソフトです。安心して使ってもらえるように、次の方針で作っています。
 
 ## Meltype がすること・しないこと

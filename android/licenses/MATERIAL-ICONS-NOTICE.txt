@@ -1,0 +1,7 @@
+Material Design Icons
+Copyright Google LLC
+Source: https://github.com/google/material-design-icons
+License: Apache License, Version 2.0 (see Apache-2.0.txt).
+
+The icons in src/Meltype.Android/Resources/drawable/ are adapted to Android
+vector drawables. They retain their upstream Apache-2.0 license.

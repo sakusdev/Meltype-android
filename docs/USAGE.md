@@ -1,5 +1,8 @@
 # Meltype の使い方
 
+この文書は上流のデスクトップ版の操作説明です。この fork の Android キーボードは [README.md](../README.md) と
+[android/README.md](../android/README.md) の操作・インストール手順を参照してください。
+
 [README](../README.md) の続きです。インストールは README を見てください。
 
 ## 動作モード

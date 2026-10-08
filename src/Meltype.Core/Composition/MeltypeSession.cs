@@ -134,28 +134,29 @@ public sealed class MeltypeSession
     /// 既定の辞書・学習データ (保存場所は <see cref="AppPaths"/>) で作る。converter は OS 側の変換エンジン、
     /// moreCandidates は読みに対する候補の一覧 (無ければ null)、wordChecker は OS のスペルチェッカー (無ければ null)。
     /// </summary>
-    public static MeltypeSession CreateDefault(IKanjiConverter converter, Func<string, IReadOnlyList<string>>? moreCandidates, IWordChecker? wordChecker)
+    public static MeltypeSession CreateDefault(IKanjiConverter converter, Func<string, IReadOnlyList<string>>? moreCandidates, IWordChecker? wordChecker, bool allowPersonalizedLearning = true)
     {
         AppPaths.MigrateFromOldName();
         Directory.CreateDirectory(AppPaths.DataDirectory);
         var settings = Settings.Load(AppPaths.ConfigFile);
         // 設定で「ファイルにログを書く」を ON にしていれば、Mac でも meltype.log に書く (動かないときの調査用)。
-        Diagnostics.Log.SetFileOutput(settings.FileLog ? AppPaths.LogFile : null);
-        Diagnostics.Log.RecordText = settings.LogTypedText;
+        Diagnostics.Log.SetFileOutput(allowPersonalizedLearning && settings.FileLog ? AppPaths.LogFile : null);
+        Diagnostics.Log.RecordText = allowPersonalizedLearning && settings.LogTypedText;
         var userDirectory = AppPaths.UserDictionaryDirectory;
         var detector = CompositionDetector.CreateDefault(userDirectory);
         // OS のスペルチェッカーが無ければ (Linux)、同梱のよく使う英単語の一覧を使う (meeting を英語と分かるように)。
         detector.SpellChecker = wordChecker is { IsAvailable: true } ? wordChecker : Detection.BuiltInWordChecker.Shared;
-        var languages = new LanguageMemory(AppPaths.LanguageMemoryFile);
+        var languages = new LanguageMemory(allowPersonalizedLearning ? AppPaths.LanguageMemoryFile : null);
         detector.Memory = languages;
         var options = new CompositionOptions
         {
+            PersonalizedLearning = allowPersonalizedLearning,
             LiveConversion = () => settings.LiveConversion,
             AutoCorrect = () => settings.AutoCorrectAfterCommit && settings.DetectionLevel != DetectionLevel.Manual,
             Level = () => settings.DetectionLevel,
             Candidates = CandidateDictionary.Load(userDirectory),
             ContextRules = ContextRules.Load(userDirectory),
-            History = new ConversionHistory(AppPaths.ConversionHistoryFile),
+            History = new ConversionHistory(allowPersonalizedLearning ? AppPaths.ConversionHistoryFile : null),
             // dictionaries/ に置いた macOS の「ユーザ辞書」の .plist も読む (#40)
             UserDictionary = new UserDictionary(AppPaths.UserDictionaryFile, importDirectory: userDirectory),
             MoreCandidates = moreCandidates,
@@ -170,7 +171,7 @@ public sealed class MeltypeSession
             SlashAsMiddleDot = () => settings.SlashAsMiddleDot,
             SpaceAroundEnglish = () => settings.SpaceAroundEnglish,
             Punctuation = () => settings.Punctuation,
-            TranslationHistory = new TranslationHistory(AppPaths.TranslationHistoryFile),
+            TranslationHistory = new TranslationHistory(allowPersonalizedLearning ? AppPaths.TranslationHistoryFile : null),
         };
         return new MeltypeSession(detector, converter, options, () => settings);
     }
@@ -255,6 +256,16 @@ public sealed class MeltypeSession
         // 別の入力欄に移ったかもしれない。次に打つ文字は先頭とみなす (前の文字はホストが教えてくれればそちらを使う)。
         _sigil.Start();
         return _host.Result(consumed: true);
+    }
+
+    /// <summary>入力欄側でカーソルや選択範囲が変わった。文字を書き直さず、古い変換・自動補正の状態を捨てる。</summary>
+    public void ResetInputContext()
+    {
+        _controller.Reset();
+        _controller.ResetContext();
+        _gate.Abort();
+        _host.Hide();
+        _sigil.Start();
     }
 
     /// <summary>候補ウィンドウで候補をクリックしたとき。</summary>

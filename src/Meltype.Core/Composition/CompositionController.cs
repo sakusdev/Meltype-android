@@ -73,6 +73,9 @@ public sealed record ReconversionSelection(string Text, string Reading);
 /// <summary>CompositionController の設定と、外の判定器へのつなぎ。</summary>
 public sealed record CompositionOptions
 {
+    /// <summary>入力内容を言語・候補・変換エンジンの学習へ渡してよいか。</summary>
+    public bool PersonalizedLearning { get; init; } = true;
+
     /// <summary>打ったそばから漢字に変換して見せるか。</summary>
     public Func<bool> LiveConversion { get; init; } = () => false;
 
@@ -1562,6 +1565,7 @@ public sealed class CompositionController
     /// <summary>漢字を含む日本語の語句を確定したら、予測変換のために読みと一緒に覚える (英字だけ・かなのままは覚えない)。</summary>
     private void RememberPhrase(string reading, string text, bool english)
     {
+        if (!_options.PersonalizedLearning) return;
         if (english || _options.Predictor?.Phrases is not { } phrases || !_options.Predictions()) return;
         if (!text.Any(c => c is >= '一' and <= '鿿' or >= '㐀' and <= '䶿') || reading.Length < 3 || reading.Any(char.IsAsciiLetter)) return;
         phrases.Remember(reading, text);
@@ -1573,7 +1577,8 @@ public sealed class CompositionController
         var english = prediction.All(c => c < 0x80);
         var reading = _text.AllKana(final: true);
         _predictionIndex = -1;
-        if (!english) _options.Predictor?.Phrases?.Remember(PredictionReading(prediction, reading), prediction);
+        if (_options.PersonalizedLearning && !english)
+            _options.Predictor?.Phrases?.Remember(PredictionReading(prediction, reading), prediction);
         CommitText(prediction, english, english ? prediction : _text.Raw, chosen: true);
     }
 
@@ -1600,6 +1605,7 @@ public sealed class CompositionController
     /// </summary>
     private void LearnLanguage()
     {
+        if (!_options.PersonalizedLearning) return;
         if (_options.Languages is not { } memory) return;
         var raw = _text.Raw;
         if (raw.Length < 2 || !raw.All(char.IsAsciiLetter)) return;
@@ -1680,6 +1686,7 @@ public sealed class CompositionController
     /// <summary>選び直した文節を学習する (次に同じ読みを変換したとき最初の候補にする)。</summary>
     private void Learn()
     {
+        if (!_options.PersonalizedLearning) return;
         // 変換の候補から打ったままの英字 (api) を選んで確定したら、その語は次から英字にする (F10 と同じ)。
         foreach (var clause in _clauses.Where(c => !c.IsEnglish && c.Changed && c.Raw is { } raw && c.Text == raw))
         {
