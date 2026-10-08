@@ -3,8 +3,9 @@
 ## Android fork の Release
 
 Android は `android-v<major.minor.patch>` タグと `.github/workflows/android.yml` を使います。
-4つの署名 Secrets、APK と versionCode の更新、対応ソースと通知の添付手順は [android/README.md](../android/README.md) にあります。
-署名鍵・証明書・ライセンス通知・依存ソースの検証が失敗した場合、公開を停止します。
+署名 Secrets が未登録なら開発用署名で Pre-release を公開します。4つすべて設定すると固定の配布用キーを使います。
+署名設定、APK と versionCode の更新、対応ソースと通知の添付手順は [android/README.md](../android/README.md) にあります。
+署名 Secrets の部分的な設定・APK 署名・配布用キーの証明書・ライセンス通知・依存ソースの検証が失敗した場合、公開を停止します。
 公開後は APK に対応する source archive を削除せず、利用者が取得できる状態を維持してください。
 以下は上流の Windows / Mac / Linux 向けの手順です。Android の署名は任意ではなく、APK の配布に必要です。
 

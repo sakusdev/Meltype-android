@@ -81,7 +81,7 @@ dotnet publish src/Meltype.Android/Meltype.Android.csproj \
   -p:AndroidPackageFormat=apk
 ```
 
-この手元の例は開発用のテスト署名を使います。配布用の署名は以下の Secrets を設定した workflow を使用します。
+この手元の例は開発用署名を使います。workflow でも署名 Secrets を未登録にすると開発用署名を使い、タグからの Pre-release 公開ができます。固定の配布用キーを使う場合は以下の Secrets を設定します。
 生成された `Assets/licenses/`・`mozc.data`・`jniLibs/` は Git に追加しません。
 既存の Mozc checkout が `MOZC_COMMIT` と異なる場合は停止するため、別の作業ディレクトリを使ってください。
 
@@ -94,10 +94,22 @@ python3 -m unittest discover -s android/tests -v
 
 ## 署名済み APK と GitHub Releases
 
-`android-v0.2.0` のような **Android 専用タグ**を push すると、固定の配布用キーで署名した APK と SHA-256 チェックサムを GitHub Releases に添付します。
-Windows 版の `v*` タグとは別のタグを使います。タグは Android 実装とこの workflow を含むコミットに付けてください（現在は `work/android-ime`）。
+`android-v0.2.0` のような **Android 専用タグ**を push すると、署名した APK と SHA-256 チェックサム、対応ソースと通知を GitHub Releases に添付します。
+Windows 版の `v*` タグとは別のタグを使います。タグは Android 実装とこの workflow を含むコミットに付けてください（`main` に取り込み済みです）。
 
-### 初回の署名設定
+### 開発用署名で公開する（Secrets 不要）
+
+以下の4つの署名 Secrets がすべて未登録なら、.NET Android が CI runner 上で生成する開発用キーを使います。
+タグを push するだけで公開でき、APK のビルド設定は `Release` のままです。
+
+- GitHub Release は **Pre-release** になり、本文に `development` と表示されます。
+- APK 名は `Meltype-Android-<version>-arm64-v8a-dev-signed.apk` です。
+- `apksigner` で署名の有効性を検証し、チェックサム・対応ソース・通知も配布します。
+- CI runner ごとに署名キーが生成されるため、別ビルド間で上書き更新できる保証はありません。署名が異なる場合は旧版のアンインストールが必要で、端末内の設定・学習データが削除されます。
+
+署名 Secrets を一部だけ設定した状態では、意図しないキーへの切り替えを防ぐため停止します。開発用署名を使う場合は4つとも未登録にしてください。
+
+### 固定の配布用キーを使う（任意）
 
 既存の配布用 keystore がある場合は、そのキーを使います。新規作成する場合は Java の `keytool` で作成できます。
 パスワードはコマンドの対話入力で指定します。
@@ -129,7 +141,7 @@ Base64 は Linux では `base64 -w 0 meltype-android-release.jks`、Windows Powe
 ### 公開
 
 ```bash
-git switch work/android-ime
+git switch main
 git pull --ff-only
 git tag android-v0.2.0
 git push origin android-v0.2.0
@@ -143,15 +155,17 @@ workflow が成功すると [Releases](https://github.com/sakusdev/Meltype-andro
 - `DEPENDENCIES.json` (依存関係の版・source revision・取得 URL)
 - `NOTICE.txt` (同梱部品の著作権・ライセンス通知)
 
+上の APK 名は配布用署名の場合です。開発用署名では APK とそのチェックサムの名前に `-dev-signed` が付き、Release は Pre-release になります。
+
 バージョン名はタグから設定し、Android の `versionCode` は `major * 1000000 + minor * 1000 + patch` で設定します（`0.2.0` → `2000`）。更新ではバージョンを上げます。minor / patch は 999 以下にします。
-キーの不足・署名検証の失敗・設定した証明書との不一致・依存ソースや通知の取得失敗があれば、Release 公開は実行しません。
+署名 Secrets の部分的な設定・署名検証の失敗・配布用キーを設定した場合の証明書との不一致・依存ソースや通知の取得失敗があれば、Release 公開は実行しません。
 
 GPL の対応ソースの範囲と点検結果は [LICENSE-COMPLIANCE.md](LICENSE-COMPLIANCE.md) を参照してください。
 同じ Release に APK と source archive を維持します。source archive 内の `Meltype/` から上のコマンドでビルドでき、
 使用した Mozc・依存ライブラリのソースも `third-party/` に含みます。
 私的な変更版は自分の keystore で署名してインストールできます。配布用の秘密鍵の公開は必要ありません。
 
-通常の branch / PR / 手動ビルドは Artifacts に APK を保存します。4 つの署名 Secret が揃っていれば配布用キーを使い、Secret を利用できない fork PR ではテスト署名でビルドします。
+通常の branch / PR / 手動ビルドは Artifacts に APK を保存します。4つの署名 Secrets が揃っていれば配布用キーを使い、未登録の場合や Secret を利用できない fork PR では開発用署名でビルドします。Release 公開はタグに限定されます。
 Actions の手動実行では `version` を指定でき、空欄なら project の `ApplicationDisplayVersion` を使います。
 
 ## インストール後
