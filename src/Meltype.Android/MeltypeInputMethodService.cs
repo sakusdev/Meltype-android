@@ -29,18 +29,91 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private const int VkSpace = 0x20;
     private const int ImeActionMask = 0x000000ff;
 
-    private static readonly string[] EmojiShortlist =
+    private enum InputLayer
+    {
+        Japanese,
+        Latin,
+        Numbers,
+        Symbols
+    }
+
+    private enum EmojiCategory
+    {
+        Recent,
+        Smileys,
+        People,
+        Nature,
+        Food,
+        Activities,
+        Travel,
+        Symbols
+    }
+
+    private static readonly string[] EmojiFrequent =
     [
-        "😀", "😂", "🥹", "😍", "🤔", "👍", "🙏", "🔥", "✨", "❤️", "😭", "😎"
+        "😂", "❤️", "🤣", "👍", "😭", "🙏", "😘", "🥰",
+        "😍", "😊", "🎉", "🔥", "✨", "🥹", "😎", "🤔",
+        "👏", "💀", "💯", "✅", "💕", "😅", "🙌", "👀"
+    ];
+
+    private static readonly string[] EmojiSmileys =
+    [
+        "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣",
+        "😊", "😇", "🙂", "🙃", "😉", "😍", "🥰", "😘",
+        "😋", "😎", "🤓", "🧐", "🤔", "🥹", "😭", "😡"
+    ];
+
+    private static readonly string[] EmojiPeople =
+    [
+        "👋", "🤚", "🖐️", "✋", "👌", "🤌", "✌️", "🤞",
+        "🫶", "🤟", "🤘", "👍", "👎", "👏", "🙌", "🙏",
+        "💪", "🫡", "👀", "🧠", "🧑", "👩", "👨", "🧑‍💻"
+    ];
+
+    private static readonly string[] EmojiNature =
+    [
+        "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼",
+        "🐨", "🐯", "🦁", "🐸", "🐵", "🐧", "🐦", "🦄",
+        "🌸", "🌹", "🌻", "🌲", "🍀", "🌙", "⭐", "🌈"
+    ];
+
+    private static readonly string[] EmojiFood =
+    [
+        "🍎", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🍒",
+        "🍔", "🍟", "🍕", "🌭", "🍿", "🍣", "🍜", "🍙",
+        "🍰", "🍩", "🍪", "🍫", "☕", "🍵", "🥤", "🍺"
+    ];
+
+    private static readonly string[] EmojiActivities =
+    [
+        "⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🎱", "🏓",
+        "🎮", "🕹️", "🎲", "🎯", "🎸", "🎹", "🎧", "🎤",
+        "📷", "🎬", "🎨", "🏆", "🥇", "🚴", "🏃", "🏊"
+    ];
+
+    private static readonly string[] EmojiTravel =
+    [
+        "🚗", "🚕", "🚌", "🚓", "🚑", "🚒", "🚚", "🏍️",
+        "🚲", "✈️", "🚀", "🚁", "🚆", "🚇", "🚢", "⛵",
+        "🏠", "🏢", "🏙️", "🗼", "🗻", "🏖️", "🌍", "🗺️"
+    ];
+
+    private static readonly string[] EmojiSymbols =
+    [
+        "❤️", "🩷", "🧡", "💛", "💚", "💙", "💜", "🖤",
+        "🤍", "💔", "💕", "💯", "✅", "❌", "⚠️", "❗",
+        "❓", "‼️", "♻️", "✨", "🔥", "💫", "⭐", "🔔"
     ];
 
     private readonly List<(MaterialButton Button, char Character)> _letterButtons = [];
+    private readonly List<string> _recentEmojis = [];
 
     private MeltypeSession? _session;
     private IKanjiConverter? _converter;
     private MozcNativeConverter? _nativeMozc;
     private Context? _uiContext;
     private LinearLayout? _candidateStrip;
+    private LinearLayout? _keyArea;
     private MaterialButton? _modeButton;
     private MaterialButton? _shiftButton;
     private MaterialButton? _spaceButton;
@@ -54,6 +127,9 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private float _spaceLastX;
     private bool _spaceWasSwiped;
     private long _lastSpaceInputAtMs;
+    private InputLayer _inputLayer = InputLayer.Japanese;
+    private EmojiCategory _emojiCategory = EmojiCategory.Recent;
+    private bool _emojiPanelOpen;
     private bool _direct;
     private bool _shift;
     private bool _hasComposingText;
@@ -119,6 +195,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _converter = null;
         _session = null;
         _candidateStrip = null;
+        _keyArea = null;
         _modeButton = null;
         _shiftButton = null;
         StopBackspaceRepeat();
@@ -266,19 +343,137 @@ public sealed class MeltypeInputMethodService : InputMethodService
             ViewGroup.LayoutParams.MatchParent,
             Dp(52)));
 
-        root.AddView(CreateCharacterRow("qwertyuiop", "1234567890"));
+        _keyArea = new LinearLayout(context)
+        {
+            Orientation = Orientation.Vertical
+        };
+        root.AddView(_keyArea, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MatchParent,
+            ViewGroup.LayoutParams.WrapContent));
 
-        var second = new LinearLayout(context) { Orientation = Orientation.Horizontal };
+        RebuildKeyArea();
+        ShowIdleTopBar();
+
+        return root;
+    }
+
+    private void RebuildKeyArea()
+    {
+        var area = _keyArea;
+        if (area is null)
+            return;
+
+        DismissKeyPreview();
+        StopBackspaceRepeat();
+        area.RemoveAllViews();
+        _letterButtons.Clear();
+        _shiftButton = null;
+        _backspaceButton = null;
+        _modeButton = null;
+        _spaceButton = null;
+        _enterButton = null;
+
+        if (_emojiPanelOpen)
+        {
+            BuildEmojiKeyboard(area);
+            return;
+        }
+
+        if (_inputLayer is InputLayer.Japanese or InputLayer.Latin)
+            BuildTextKeyboard(area);
+        else
+            BuildNumberSymbolKeyboard(area);
+
+        UpdateModeLabel();
+        RefreshShiftVisual();
+        UpdateEnterKey(CurrentInputEditorInfo);
+    }
+
+    private void BuildTextKeyboard(LinearLayout area)
+    {
+        area.AddView(CreateCharacterRow("qwertyuiop", "1234567890"));
+
+        var second = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
         foreach (var c in "asdfghjkl")
             second.AddView(CreateLetterKey(c), WeightedKeyParams());
-        second.AddView(CreateKey("ー", () => HandleCharacter('ー'), KeyKind.Normal), WeightedKeyParams());
-        root.AddView(second);
+        second.AddView(
+            CreateKey(
+                _inputLayer == InputLayer.Japanese ? "ー" : "-",
+                () => HandleCharacter(_inputLayer == InputLayer.Japanese ? 'ー' : '-'),
+                KeyKind.Normal),
+            WeightedKeyParams());
+        area.AddView(second);
 
-        var third = new LinearLayout(context) { Orientation = Orientation.Horizontal };
+        var third = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
         _shiftButton = CreateIconKey(Resource.Drawable.ic_key_shift, ToggleShift, KeyKind.Special, "Shift");
         third.AddView(_shiftButton, WeightedKeyParams(1.34f));
         foreach (var c in "zxcvbnm")
             third.AddView(CreateLetterKey(c), WeightedKeyParams());
+        AddBackspaceKey(third);
+        area.AddView(third);
+
+        area.AddView(BuildCommonBottomRow());
+    }
+
+    private void BuildNumberSymbolKeyboard(LinearLayout area)
+    {
+        if (_inputLayer == InputLayer.Numbers)
+        {
+            area.AddView(CreateDirectRow(["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]));
+            area.AddView(CreateDirectRow(["@", "#", "$", "_", "&", "-", "+", "(", ")", "/"]));
+
+            var third = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
+            third.AddView(CreateKey("#+=", ToggleSymbolsPage, KeyKind.Special), WeightedKeyParams(1.34f));
+            foreach (var symbol in new[] { "*", "\"", "'", ":", ";", "!", "?" })
+                third.AddView(CreateDirectKey(symbol), WeightedKeyParams());
+            AddBackspaceKey(third);
+            area.AddView(third);
+        }
+        else
+        {
+            area.AddView(CreateDirectRow(["~", "\\", "|", "•", "√", "π", "÷", "×", "¶", "Δ"]));
+            area.AddView(CreateDirectRow(["£", "¢", "€", "¥", "^", "°", "=", "{", "}", "%"]));
+
+            var third = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
+            third.AddView(CreateKey("123", ToggleSymbolsPage, KeyKind.Special), WeightedKeyParams(1.34f));
+            foreach (var symbol in new[] { "<", ">", "[", "]", "_", "+", "=" })
+                third.AddView(CreateDirectKey(symbol), WeightedKeyParams());
+            AddBackspaceKey(third);
+            area.AddView(third);
+        }
+
+        area.AddView(BuildCommonBottomRow());
+    }
+
+    private LinearLayout CreateDirectRow(string[] labels)
+    {
+        var row = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
+        foreach (var label in labels)
+            row.AddView(CreateDirectKey(label), WeightedKeyParams());
+        return row;
+    }
+
+    private MaterialButton CreateDirectKey(string text) =>
+        CreateKey(text, () => CommitDirectText(text), KeyKind.Normal);
+
+    private void CommitDirectText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        try
+        {
+            CurrentInputConnection?.CommitText(text, 1);
+            _hasComposingText = false;
+        }
+        catch (Exception ex)
+        {
+            Warn("CommitDirectText", ex);
+        }
+    }
+
+    private void AddBackspaceKey(LinearLayout row)
+    {
         _backspaceButton = CreateIconKey(
             Resource.Drawable.ic_key_backspace,
             () =>
@@ -294,48 +489,139 @@ public sealed class MeltypeInputMethodService : InputMethodService
             KeyKind.Special,
             "削除");
         AttachBackspaceRepeat(_backspaceButton);
-        third.AddView(_backspaceButton, WeightedKeyParams(1.34f));
-        root.AddView(third);
+        row.AddView(_backspaceButton, WeightedKeyParams(1.34f));
+    }
 
-        var bottom = new LinearLayout(context) { Orientation = Orientation.Horizontal };
+    private LinearLayout BuildCommonBottomRow()
+    {
+        var bottom = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
 
-        _modeButton = CreateKey("あa1", ToggleDirectMode, KeyKind.PillSpecial);
+        _modeButton = CreateKey(string.Empty, CycleInputLayer, KeyKind.PillSpecial);
         bottom.AddView(_modeButton, WeightedKeyParams(1.45f));
 
-        bottom.AddView(
-            CreateKey("、", () => HandleCharacter('、'), KeyKind.Special),
-            WeightedKeyParams(.92f));
-
+        var comma = _inputLayer == InputLayer.Japanese ? "、" : ",";
+        var period = _inputLayer == InputLayer.Japanese ? "。" : ".";
+        bottom.AddView(CreateDirectKey(comma), WeightedKeyParams(.92f));
         bottom.AddView(
             CreateIconKey(Resource.Drawable.ic_toolbar_emoji, ShowEmojiBar, KeyKind.Special, "絵文字"),
             WeightedKeyParams(1.0f));
 
-        _spaceButton = CreateKey("日本語", HandleSpace, KeyKind.Normal);
+        _spaceButton = CreateKey(string.Empty, HandleSpace, KeyKind.Normal);
         AttachSpaceSwipe(_spaceButton);
         bottom.AddView(_spaceButton, WeightedKeyParams(2.15f));
 
-        bottom.AddView(
-            CreateKey("。", () => HandleCharacter('。'), KeyKind.Special),
-            WeightedKeyParams(.96f));
-
+        bottom.AddView(CreateDirectKey(period), WeightedKeyParams(.96f));
         bottom.AddView(
             CreateIconKey(Resource.Drawable.ic_key_cursor_left, () => MoveCursor(global::Android.Views.Keycode.DpadLeft), KeyKind.Special, "カーソルを左へ"),
             WeightedKeyParams(.96f));
-
         bottom.AddView(
             CreateIconKey(Resource.Drawable.ic_key_cursor_right, () => MoveCursor(global::Android.Views.Keycode.DpadRight), KeyKind.Special, "カーソルを右へ"),
             WeightedKeyParams(.96f));
 
         _enterButton = CreateIconKey(Resource.Drawable.ic_key_return, HandleEnter, KeyKind.Accent, "改行");
         bottom.AddView(_enterButton, WeightedKeyParams(1.45f));
-        root.AddView(bottom);
+        return bottom;
+    }
 
-        UpdateModeLabel();
-        RefreshShiftVisual();
+    private void BuildEmojiKeyboard(LinearLayout area)
+    {
+        var items = GetEmojiItems(_emojiCategory);
+        const int columns = 8;
+        const int rows = 3;
+        var index = 0;
+
+        for (var rowIndex = 0; rowIndex < rows; rowIndex++)
+        {
+            var row = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
+            for (var column = 0; column < columns; column++)
+            {
+                if (index < items.Count)
+                {
+                    var emoji = items[index++];
+                    var button = CreateKey(emoji, () => CommitEmoji(emoji), KeyKind.Candidate);
+                    button.TextSize = 25;
+                    row.AddView(button, WeightedKeyParams());
+                }
+                else
+                {
+                    row.AddView(new View(UiContext), WeightedKeyParams());
+                }
+            }
+            area.AddView(row);
+        }
+
+        var controls = new LinearLayout(UiContext) { Orientation = Orientation.Horizontal };
+        controls.AddView(CreateKey("ABC", CloseEmojiPanel, KeyKind.PillSpecial), WeightedKeyParams(1.25f));
+        controls.AddView(CreateDirectKey(","), WeightedKeyParams(.8f));
+
+        _spaceButton = CreateKey("space", HandleSpace, KeyKind.Normal);
+        AttachSpaceSwipe(_spaceButton);
+        controls.AddView(_spaceButton, WeightedKeyParams(3.1f));
+
+        _backspaceButton = CreateIconKey(
+            Resource.Drawable.ic_key_backspace,
+            HandleBackspace,
+            KeyKind.Special,
+            "削除");
+        AttachBackspaceRepeat(_backspaceButton);
+        controls.AddView(_backspaceButton, WeightedKeyParams(1.15f));
+
+        _enterButton = CreateIconKey(Resource.Drawable.ic_key_return, HandleEnter, KeyKind.Accent, "改行");
+        controls.AddView(_enterButton, WeightedKeyParams(1.25f));
+        area.AddView(controls);
         UpdateEnterKey(CurrentInputEditorInfo);
-        ShowIdleTopBar();
+    }
 
-        return root;
+    private string[] GetEmojiItems(EmojiCategory category)
+    {
+        if (category != EmojiCategory.Recent)
+        {
+            return category switch
+            {
+                EmojiCategory.Smileys => EmojiSmileys,
+                EmojiCategory.People => EmojiPeople,
+                EmojiCategory.Nature => EmojiNature,
+                EmojiCategory.Food => EmojiFood,
+                EmojiCategory.Activities => EmojiActivities,
+                EmojiCategory.Travel => EmojiTravel,
+                EmojiCategory.Symbols => EmojiSymbols,
+                _ => EmojiFrequent
+            };
+        }
+
+        var result = new List<string>(24);
+        foreach (var emoji in _recentEmojis)
+        {
+            if (!result.Contains(emoji))
+                result.Add(emoji);
+            if (result.Count == 24)
+                break;
+        }
+        foreach (var emoji in EmojiFrequent)
+        {
+            if (!result.Contains(emoji))
+                result.Add(emoji);
+            if (result.Count == 24)
+                break;
+        }
+        return result.ToArray();
+    }
+
+    private void CommitEmoji(string emoji)
+    {
+        try
+        {
+            CurrentInputConnection?.CommitText(emoji, 1);
+            _recentEmojis.Remove(emoji);
+            _recentEmojis.Insert(0, emoji);
+            if (_recentEmojis.Count > 24)
+                _recentEmojis.RemoveAt(_recentEmojis.Count - 1);
+            _hasComposingText = false;
+        }
+        catch (Exception ex)
+        {
+            Warn("CommitEmoji", ex);
+        }
     }
 
     private string? ExtractMozcData(string baseDirectory)
@@ -579,6 +865,13 @@ public sealed class MeltypeInputMethodService : InputMethodService
         var connection = CurrentInputConnection;
         if (connection is null)
             return;
+
+        if (_direct)
+        {
+            connection.CommitText(c.ToString(), 1);
+            _hasComposingText = false;
+            return;
+        }
 
         var session = _session;
         if (session is null)
@@ -959,17 +1252,36 @@ public sealed class MeltypeInputMethodService : InputMethodService
             _shift ? OnPrimaryContainer : KeyForeground);
     }
 
-    private void ToggleDirectMode()
+    private void CycleInputLayer()
+    {
+        var next = _inputLayer switch
+        {
+            InputLayer.Japanese => InputLayer.Latin,
+            InputLayer.Latin => InputLayer.Numbers,
+            InputLayer.Numbers => InputLayer.Japanese,
+            InputLayer.Symbols => InputLayer.Japanese,
+            _ => InputLayer.Japanese
+        };
+        SetInputLayer(next);
+    }
+
+    private void ToggleSymbolsPage() =>
+        SetInputLayer(_inputLayer == InputLayer.Symbols ? InputLayer.Numbers : InputLayer.Symbols);
+
+    private void SetInputLayer(InputLayer layer)
     {
         if (_session is { IsComposing: true } session)
             Apply(session.CommitPending());
 
-        _direct = !_direct;
+        _emojiPanelOpen = false;
+        _inputLayer = layer;
+        _direct = layer != InputLayer.Japanese;
+        _shift = false;
 
         if (_session is not null)
             _session.Direct = _direct;
 
-        UpdateModeLabel();
+        RebuildKeyArea();
         ShowIdleTopBar();
     }
 
@@ -977,12 +1289,27 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         if (_modeButton is not null)
         {
-            _modeButton.Text = _direct ? "ABC" : "あa1";
-            _modeButton.ContentDescription = _direct ? "英字直接入力" : "Meltype 日本語入力";
+            var (text, description) = _inputLayer switch
+            {
+                InputLayer.Japanese => ("ABC", "英字入力へ"),
+                InputLayer.Latin => ("123", "数字入力へ"),
+                InputLayer.Numbers => ("あ", "日本語入力へ"),
+                InputLayer.Symbols => ("あ", "日本語入力へ"),
+                _ => ("ABC", "入力モード切替")
+            };
+            _modeButton.Text = text;
+            _modeButton.ContentDescription = description;
         }
 
         if (_spaceButton is not null)
-            _spaceButton.Text = _direct ? "English" : "日本語";
+        {
+            _spaceButton.Text = _inputLayer switch
+            {
+                InputLayer.Japanese => "日本語",
+                InputLayer.Latin => "English",
+                _ => "space"
+            };
+        }
     }
 
     private void UpdateEnterKey(EditorInfo? editor)
@@ -1039,30 +1366,67 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void ShowEmojiBar()
     {
+        if (_emojiPanelOpen)
+        {
+            CloseEmojiPanel();
+            return;
+        }
+
+        if (_session is { IsComposing: true } session)
+            Apply(session.CommitPending());
+
+        _emojiPanelOpen = true;
+        _emojiCategory = EmojiCategory.Recent;
+        ShowEmojiCategoryBar();
+        RebuildKeyArea();
+    }
+
+    private void CloseEmojiPanel()
+    {
+        _emojiPanelOpen = false;
+        RebuildKeyArea();
+        ShowIdleTopBar();
+    }
+
+    private void ShowEmojiCategoryBar()
+    {
         var strip = _candidateStrip;
         if (strip is null)
             return;
 
         strip.RemoveAllViews();
+        AddEmojiCategory("🕘", EmojiCategory.Recent, "最近");
+        AddEmojiCategory("😀", EmojiCategory.Smileys, "顔");
+        AddEmojiCategory("👋", EmojiCategory.People, "人");
+        AddEmojiCategory("🐻", EmojiCategory.Nature, "自然");
+        AddEmojiCategory("🍔", EmojiCategory.Food, "食べ物");
+        AddEmojiCategory("⚽", EmojiCategory.Activities, "アクティビティ");
+        AddEmojiCategory("🚗", EmojiCategory.Travel, "乗り物");
+        AddEmojiCategory("♥", EmojiCategory.Symbols, "記号");
+    }
 
-        foreach (var emoji in EmojiShortlist)
-        {
-            var captured = emoji;
-            var button = CreateKey(
-                captured,
-                () =>
-                {
-                    CurrentInputConnection?.CommitText(captured, 1);
-                    ShowIdleTopBar();
-                },
-                KeyKind.Candidate);
+    private void AddEmojiCategory(string label, EmojiCategory category, string description)
+    {
+        var strip = _candidateStrip;
+        if (strip is null)
+            return;
 
-            var parameters = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WrapContent,
-                Dp(38));
-            parameters.SetMargins(Dp(2), Dp(1), Dp(2), Dp(1));
-            strip.AddView(button, parameters);
-        }
+        var kind = category == _emojiCategory
+            ? KeyKind.CandidateSelected
+            : KeyKind.Candidate;
+        var button = CreateKey(label, () => SelectEmojiCategory(category), kind);
+        button.TextSize = 20;
+        button.ContentDescription = description;
+        var p = new LinearLayout.LayoutParams(Dp(42), Dp(42));
+        p.SetMargins(Dp(1), Dp(1), Dp(1), Dp(1));
+        strip.AddView(button, p);
+    }
+
+    private void SelectEmojiCategory(EmojiCategory category)
+    {
+        _emojiCategory = category;
+        ShowEmojiCategoryBar();
+        RebuildKeyArea();
     }
 
     private (string? Before, string? After) SurroundingText()
@@ -1200,7 +1564,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             AddToolbarSpacer();
             AddToolbarIcon(Resource.Drawable.ic_toolbar_emoji, ShowEmojiBar, "絵文字");
             AddToolbarSpacer();
-            AddToolbarIcon(Resource.Drawable.ic_toolbar_translate, ToggleDirectMode, "入力モードを切り替える");
+            AddToolbarIcon(Resource.Drawable.ic_toolbar_translate, CycleInputLayer, "入力モードを切り替える");
             AddToolbarSpacer();
             AddToolbarIcon(Resource.Drawable.ic_toolbar_clipboard, PasteClipboard, "クリップボードから貼り付ける");
             AddToolbarSpacer();
