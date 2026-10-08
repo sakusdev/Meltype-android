@@ -1,0 +1,30 @@
+name: dev-android-key-ux
+
+on:
+  push:
+    branches:
+      - work/android-ime
+    paths:
+      - tools/apply-android-key-ux.py
+      - .github/workflows/dev-android-key-ux.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/android-ime
+          fetch-depth: 0
+      - name: Apply Android key UX patch
+        run: python3 tools/apply-android-key-ux.py
+      - name: Commit Android key UX
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Meltype.Android/MeltypeInputMethodService.cs src/Meltype.Android/Resources/drawable
+          git commit -m "Polish Android key controls and previews"
+          git push origin HEAD:work/android-ime
