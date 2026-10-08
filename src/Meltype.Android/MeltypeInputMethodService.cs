@@ -46,6 +46,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private MaterialButton? _spaceButton;
     private MaterialButton? _enterButton;
     private MaterialButton? _backspaceButton;
+    private PopupWindow? _keyPreviewPopup;
+    private TextView? _keyPreviewText;
     private ActionRunnable? _backspaceRepeatRunnable;
     private bool _backspaceRepeating;
     private bool _backspaceRepeated;
@@ -123,6 +125,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _spaceButton = null;
         _enterButton = null;
         _backspaceButton = null;
+        DismissKeyPreview();
+        _keyPreviewText = null;
         _backspaceRepeatRunnable?.Dispose();
         _backspaceRepeatRunnable = null;
         _uiContext = null;
@@ -172,6 +176,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     public override void OnFinishInputView(bool finishingInput)
     {
         StopBackspaceRepeat();
+        DismissKeyPreview();
         var sinceSpace = _lastSpaceInputAtMs == 0
             ? -1
             : Environment.TickCount64 - _lastSpaceInputAtMs;
@@ -270,12 +275,12 @@ public sealed class MeltypeInputMethodService : InputMethodService
         root.AddView(second);
 
         var third = new LinearLayout(context) { Orientation = Orientation.Horizontal };
-        _shiftButton = CreateKey("⇧", ToggleShift, KeyKind.Special);
+        _shiftButton = CreateIconKey(Resource.Drawable.ic_key_shift, ToggleShift, KeyKind.Special, "Shift");
         third.AddView(_shiftButton, WeightedKeyParams(1.34f));
         foreach (var c in "zxcvbnm")
             third.AddView(CreateLetterKey(c), WeightedKeyParams());
-        _backspaceButton = CreateKey(
-            "⌫",
+        _backspaceButton = CreateIconKey(
+            Resource.Drawable.ic_key_backspace,
             () =>
             {
                 if (_backspaceRepeated)
@@ -286,7 +291,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
                 HandleBackspace();
             },
-            KeyKind.Special);
+            KeyKind.Special,
+            "削除");
         AttachBackspaceRepeat(_backspaceButton);
         third.AddView(_backspaceButton, WeightedKeyParams(1.34f));
         root.AddView(third);
@@ -301,7 +307,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             WeightedKeyParams(.92f));
 
         bottom.AddView(
-            CreateKey("☺︎", ShowEmojiBar, KeyKind.Special),
+            CreateIconKey(Resource.Drawable.ic_toolbar_emoji, ShowEmojiBar, KeyKind.Special, "絵文字"),
             WeightedKeyParams(1.0f));
 
         _spaceButton = CreateKey("日本語", HandleSpace, KeyKind.Normal);
@@ -313,14 +319,14 @@ public sealed class MeltypeInputMethodService : InputMethodService
             WeightedKeyParams(.96f));
 
         bottom.AddView(
-            CreateKey("◀", () => MoveCursor(global::Android.Views.Keycode.DpadLeft), KeyKind.Special),
+            CreateIconKey(Resource.Drawable.ic_key_cursor_left, () => MoveCursor(global::Android.Views.Keycode.DpadLeft), KeyKind.Special, "カーソルを左へ"),
             WeightedKeyParams(.96f));
 
         bottom.AddView(
-            CreateKey("▶", () => MoveCursor(global::Android.Views.Keycode.DpadRight), KeyKind.Special),
+            CreateIconKey(Resource.Drawable.ic_key_cursor_right, () => MoveCursor(global::Android.Views.Keycode.DpadRight), KeyKind.Special, "カーソルを右へ"),
             WeightedKeyParams(.96f));
 
-        _enterButton = CreateKey("↵", HandleEnter, KeyKind.Accent);
+        _enterButton = CreateIconKey(Resource.Drawable.ic_key_return, HandleEnter, KeyKind.Accent, "改行");
         bottom.AddView(_enterButton, WeightedKeyParams(1.45f));
         root.AddView(bottom);
 
@@ -369,6 +375,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         var button = CreateKey(character.ToString(), () => HandleLetter(character));
         _letterButtons.Add((button, character));
+        AttachKeyPreview(button);
 
         if (hint is not null)
         {
@@ -478,6 +485,42 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         button.Click += (_, _) => SafeRun("KeyAction", action);
         return button;
+    }
+
+    private MaterialButton CreateIconKey(
+        int iconResource,
+        Action action,
+        KeyKind kind,
+        string description)
+    {
+        var button = CreateKey(string.Empty, action, kind);
+        button.ContentDescription = description;
+        SetKeyIcon(
+            button,
+            iconResource,
+            kind is KeyKind.Accent && !IsDarkTheme ? OnPrimary : KeyForeground);
+        return button;
+    }
+
+    private void SetKeyIcon(MaterialButton button, int iconResource, Color tint)
+    {
+        try
+        {
+            var icon = UiContext.GetDrawable(iconResource)?.Mutate();
+            if (icon is null)
+                return;
+
+            icon.SetTint(tint);
+            var size = Dp(24);
+            icon.SetBounds(0, 0, size, size);
+            button.SetCompoundDrawables(icon, null, null, null);
+            button.CompoundDrawablePadding = 0;
+            button.SetPadding(0, 0, 0, 0);
+        }
+        catch (Exception ex)
+        {
+            Warn("SetKeyIcon", ex);
+        }
     }
 
     private void ApplyKeyAppearance(MaterialButton button, KeyKind kind)
@@ -752,6 +795,85 @@ public sealed class MeltypeInputMethodService : InputMethodService
             _backspaceButton.RemoveCallbacks(_backspaceRepeatRunnable);
     }
 
+    private void AttachKeyPreview(MaterialButton button)
+    {
+        button.Touch += (_, e) =>
+        {
+            try
+            {
+                switch (e.Event?.Action)
+                {
+                    case MotionEventActions.Down:
+                        ShowKeyPreview(button);
+                        break;
+                    case MotionEventActions.Up:
+                    case MotionEventActions.Cancel:
+                        DismissKeyPreview();
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Warn("KeyPreviewTouch", ex);
+                DismissKeyPreview();
+            }
+
+            e.Handled = false;
+        };
+    }
+
+    private void ShowKeyPreview(MaterialButton button)
+    {
+        DismissKeyPreview();
+
+        var label = new TextView(UiContext)
+        {
+            Text = button.Text,
+            TextSize = 27,
+            Gravity = GravityFlags.Center,
+            Focusable = false,
+            FocusableInTouchMode = false
+        };
+        label.Typeface = global::Android.Graphics.Typeface.Create(
+            "sans-serif-medium",
+            global::Android.Graphics.TypefaceStyle.Normal);
+        label.SetTextColor(KeyForeground);
+
+        var background = new global::Android.Graphics.Drawables.GradientDrawable();
+        background.SetColor(SpecialKeyBackground);
+        background.SetCornerRadius(Dp(9));
+        label.Background = background;
+
+        var width = Math.Max(button.Width, Dp(46));
+        var height = Dp(58);
+        var popup = new PopupWindow(label, width, height, false)
+        {
+            Focusable = false,
+            OutsideTouchable = false
+        };
+
+        _keyPreviewText = label;
+        _keyPreviewPopup = popup;
+        popup.ShowAsDropDown(button, 0, -(button.Height + height + Dp(5)));
+    }
+
+    private void DismissKeyPreview()
+    {
+        try
+        {
+            _keyPreviewPopup?.Dismiss();
+        }
+        catch (Exception ex)
+        {
+            Warn("DismissKeyPreview", ex);
+        }
+        finally
+        {
+            _keyPreviewPopup = null;
+            _keyPreviewText = null;
+        }
+    }
+
     private void AttachLetterPressVisual(MaterialButton button)
     {
         button.Touch += (_, e) =>
@@ -831,6 +953,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _shiftButton.BackgroundTintList = ColorStateList.ValueOf(
             _shift ? PrimaryContainer : SpecialKeyBackground);
         _shiftButton.SetTextColor(_shift ? OnPrimaryContainer : KeyForeground);
+        SetKeyIcon(
+            _shiftButton,
+            Resource.Drawable.ic_key_shift,
+            _shift ? OnPrimaryContainer : KeyForeground);
     }
 
     private void ToggleDirectMode()
@@ -865,19 +991,23 @@ public sealed class MeltypeInputMethodService : InputMethodService
             return;
 
         var action = editor is null ? 0 : ((int)editor.ImeOptions & ImeActionMask);
-        var (label, description) = action switch
+        var (icon, description) = action switch
         {
-            2 => ("→", "移動"),
-            3 => ("⌕", "検索"),
-            4 => ("➤", "送信"),
-            5 => ("⇥", "次へ"),
-            6 => ("✓", "完了"),
-            7 => ("⇤", "前へ"),
-            _ => ("↵", "改行")
+            2 => (Resource.Drawable.ic_key_arrow_forward, "移動"),
+            3 => (Resource.Drawable.ic_key_search, "検索"),
+            4 => (Resource.Drawable.ic_key_send, "送信"),
+            5 => (Resource.Drawable.ic_key_arrow_forward, "次へ"),
+            6 => (Resource.Drawable.ic_key_done, "完了"),
+            7 => (Resource.Drawable.ic_key_cursor_left, "前へ"),
+            _ => (Resource.Drawable.ic_key_return, "改行")
         };
 
-        _enterButton.Text = label;
+        _enterButton.Text = string.Empty;
         _enterButton.ContentDescription = description;
+        SetKeyIcon(
+            _enterButton,
+            icon,
+            IsDarkTheme ? KeyForeground : OnPrimary);
     }
 
     private void ShowInputMethodPicker()
