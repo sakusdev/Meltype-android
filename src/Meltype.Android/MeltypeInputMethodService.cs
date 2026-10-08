@@ -241,7 +241,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Orientation = Orientation.Vertical
         };
         root.SetBackgroundColor(KeyboardBackground);
-        root.SetPadding(Dp(5), 0, Dp(5), Dp(14));
+        root.SetPadding(Dp(5), 0, Dp(5), Dp(38));
 
         var candidateScroll = new HorizontalScrollView(context)
         {
@@ -259,7 +259,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             ViewGroup.LayoutParams.MatchParent));
         root.AddView(candidateScroll, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
-            Dp(46)));
+            Dp(52)));
 
         root.AddView(CreateCharacterRow("qwertyuiop", "1234567890"));
 
@@ -301,7 +301,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             WeightedKeyParams(.92f));
 
         bottom.AddView(
-            CreateKey("☺", ShowEmojiBar, KeyKind.Special),
+            CreateKey("☺︎", ShowEmojiBar, KeyKind.Special),
             WeightedKeyParams(1.0f));
 
         _spaceButton = CreateKey("日本語", HandleSpace, KeyKind.Normal);
@@ -485,7 +485,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         var background = kind switch
         {
             KeyKind.Special or KeyKind.PillSpecial => SpecialKeyBackground,
-            KeyKind.Accent => Primary,
+            KeyKind.Accent => IsDarkTheme ? SpecialKeyBackground : Primary,
             KeyKind.Candidate => KeyboardBackground,
             KeyKind.CandidateSelected => CandidateBackground,
             KeyKind.Toolbar => KeyboardBackground,
@@ -494,7 +494,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         var foreground = kind switch
         {
-            KeyKind.Accent => OnPrimary,
+            KeyKind.Accent => IsDarkTheme ? KeyForeground : OnPrimary,
             KeyKind.CandidateSelected => KeyForeground,
             _ => KeyForeground
         };
@@ -1067,9 +1067,13 @@ public sealed class MeltypeInputMethodService : InputMethodService
             strip.RemoveAllViews();
 
             AddToolbarIcon(Resource.Drawable.ic_toolbar_apps, ShowInputMethodPicker, "入力方法を切り替える");
+            AddToolbarSpacer();
             AddToolbarIcon(Resource.Drawable.ic_toolbar_emoji, ShowEmojiBar, "絵文字");
+            AddToolbarSpacer();
             AddToolbarIcon(Resource.Drawable.ic_toolbar_translate, ToggleDirectMode, "入力モードを切り替える");
+            AddToolbarSpacer();
             AddToolbarIcon(Resource.Drawable.ic_toolbar_clipboard, PasteClipboard, "クリップボードから貼り付ける");
+            AddToolbarSpacer();
             AddToolbarIcon(Resource.Drawable.ic_toolbar_settings, OpenSettings, "Meltype 設定");
         }
         catch (Exception ex)
@@ -1123,11 +1127,21 @@ public sealed class MeltypeInputMethodService : InputMethodService
         button.Click += (_, _) => SafeRun("ToolbarAction", action);
 
         var parameters = new LinearLayout.LayoutParams(
-            0,
             Dp(44),
-            1f);
-        parameters.SetMargins(Dp(4), 0, Dp(4), 0);
+            Dp(44));
         strip.AddView(button, parameters);
+    }
+
+    private void AddToolbarSpacer()
+    {
+        var strip = _candidateStrip;
+        if (strip is null)
+            return;
+
+        strip.AddView(new View(UiContext), new LinearLayout.LayoutParams(
+            0,
+            Dp(1),
+            1f));
     }
 
     private void AddCandidateHint(string? text)
