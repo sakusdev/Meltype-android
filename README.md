@@ -8,7 +8,7 @@
 
 ## インストール
 
-1. このリポジトリの [Releases](https://github.com/sakusdev/Meltype-android/releases) で、`android-v` から始まる版の `Meltype-Android-<version>-arm64-v8a.apk` を取得します。
+1. このリポジトリの [Releases](https://github.com/sakusdev/Meltype-android/releases) で、`android-v` から始まる版の APK を取得します。開発用署名の版は **Pre-release** と表示され、ファイル名に `-dev-signed` が付きます。
 2. ダウンロードに使ったブラウザー／ファイルアプリに、Android の設定で APK のインストールを許可してインストールします。
 3. Meltype for Android を開き、「入力方法の設定を開く」で Meltype を有効にします。
 4. アプリへ戻り、「Meltype に切り替える」でキーボードを選びます。
@@ -17,7 +17,7 @@ Android のキーボードに関する確認画面は、入力方法を有効に
 本アプリには、入力内容をネットワークへ送信する機能はありません。
 
 同じ配布用キーで署名され、versionCode が上がった APK なら更新できます。
-以前の CI のテスト署名 APK から切り替える場合は、旧版のアンインストールが必要です。その際、端末内の設定・学習データは削除されます。
+開発用署名では CI runner ごとにキーが生成されるため、別ビルドや配布用キーへの切り替え時は旧版のアンインストールが必要になる場合があります。その際、端末内の設定・学習データは削除されます。
 APK の SHA-256 は同じ Release の `.apk.sha256` と比較できます。
 
 ## 入力する
@@ -41,9 +41,9 @@ PC 版のトレイメニュー・Windows IME 切替・自動更新などを、�
 
 ## ビルドと署名 Release
 
-ビルド、4つの署名 Secrets の登録、タグの付け方は [android/README.md](android/README.md) にあります。
-`android-v0.2.0` のようなタグを push すると、GitHub Actions が署名と証明書を検証し、APK・チェックサム・対応ソース・通知を同じ Release に添付します。
-配布用の署名設定が不足していれば、Release 公開は停止します。
+ビルド、開発用署名での公開、配布用の署名設定は [android/README.md](android/README.md) にあります。
+`android-v0.2.0` のようなタグを push すると、GitHub Actions が署名を検証し、APK・チェックサム・対応ソース・通知を同じ Release に添付します。
+署名 Secrets が未登録なら開発用署名で Pre-release を公開します。4つすべて登録すると配布用キーを使い、その証明書も検証します。一部だけ登録した場合は設定エラーとして停止します。
 通常の branch / PR ビルドの APK は [Actions](https://github.com/sakusdev/Meltype-android/actions/workflows/android.yml) の Artifacts に保存されます。
 
 共通ロジックと Android の入力方針のテストは Android SDK なしでも実行できます。

@@ -27,17 +27,28 @@ def release_config(ref, requested_version, project_version, secrets):
         raise ValueError("Version cannot be represented by an Android versionCode")
 
     missing = [name for name in SIGNING_SECRETS if not secrets.get(name)]
-    signed = not missing
-    if (release or len(missing) != len(SIGNING_SECRETS)) and missing:
-        raise ValueError("Configure these Actions Secrets before signing: " + ", ".join(missing))
+    release_signed = not missing
+    if missing and len(missing) != len(SIGNING_SECRETS):
+        raise ValueError("Configure all four Actions Secrets or remove all for development signing. Missing: "
+                         + ", ".join(missing))
+    signing_mode = "release" if release_signed else "development"
+    signing_notice = (
+        "Signed with the configured release key; its certificate was checked against the APK."
+        if release_signed else
+        "Development signing: this APK uses the CI runner's generated key. A later build may require "
+        "uninstalling the previous APK, which removes app settings and learning data."
+    )
+    apk_suffix = "" if release_signed else "-dev-signed"
     return {
         "version": version,
         "version_code": str(version_code),
         "release": str(release).lower(),
-        "signed": str(signed).lower(),
+        "release_signed": str(release_signed).lower(),
+        "signing_mode": signing_mode,
+        "signing_notice": signing_notice,
         "tag": "android-v" + version,
         "artifact_name": "meltype-android-arm64-apk",
-        "apk_name": f"Meltype-Android-{version}-arm64-v8a.apk",
+        "apk_name": f"Meltype-Android-{version}-arm64-v8a{apk_suffix}.apk",
     }
 
 
@@ -54,7 +65,7 @@ def main():
         for name, value in config.items():
             output.write(f"{name}={value}\n")
     print(f"Android {config['version']} (versionCode {config['version_code']}), "
-          f"release signing={config['signed']}, publish release={config['release']}")
+          f"signing={config['signing_mode']}, publish release={config['release']}")
     return 0
 
 

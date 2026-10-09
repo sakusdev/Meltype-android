@@ -40,7 +40,9 @@ jobs:
       version: ${{ steps.config.outputs.version }}
       version_code: ${{ steps.config.outputs.version_code }}
       release: ${{ steps.config.outputs.release }}
-      signed: ${{ steps.config.outputs.signed }}
+      release_signed: ${{ steps.config.outputs.release_signed }}
+      signing_mode: ${{ steps.config.outputs.signing_mode }}
+      signing_notice: ${{ steps.config.outputs.signing_notice }}
       tag: ${{ steps.config.outputs.tag }}
       artifact_name: ${{ steps.config.outputs.artifact_name }}
 
@@ -108,7 +110,7 @@ jobs:
         run: python3 android/distribution.py prepare --mozc "$HOME/mozc-android" --bazel "$HOME/tools/bazelisk"
 
       - name: Prepare release keystore
-        if: steps.config.outputs.signed == 'true'
+        if: steps.config.outputs.release_signed == 'true'
         run: |
           python3 - <<'PY'
           import base64, os
@@ -124,7 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          signing_args=()
+          signing_args=(-p:AndroidKeyStore=false)
           if [[ "$RELEASE_SIGNED" == "true" ]]; then
             signing_args=(
               -p:AndroidKeyStore=true
@@ -145,7 +147,7 @@ jobs:
             "${signing_args[@]}" \
             2>&1 | tee publish.log
         env:
-          RELEASE_SIGNED: ${{ steps.config.outputs.signed }}
+          RELEASE_SIGNED: ${{ steps.config.outputs.release_signed }}
           APP_VERSION: ${{ steps.config.outputs.version }}
           APP_VERSION_CODE: ${{ steps.config.outputs.version_code }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -164,7 +166,7 @@ jobs:
       - name: Verify and package signed APK
         run: python3 android/package_apk.py
         env:
-          RELEASE_SIGNED: ${{ steps.config.outputs.signed }}
+          RELEASE_SIGNED: ${{ steps.config.outputs.release_signed }}
           APK_NAME: ${{ steps.config.outputs.apk_name }}
           SIGNING_KEYSTORE: ${{ runner.temp }}/meltype-release.jks
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -198,7 +200,7 @@ jobs:
 
   release:
     needs: build
-    if: needs.build.outputs.release == 'true' && needs.build.outputs.signed == 'true'
+    if: needs.build.outputs.release == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -216,10 +218,13 @@ jobs:
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           name: Meltype for Android ${{ needs.build.outputs.version }}
+          prerelease: ${{ needs.build.outputs.release_signed != 'true' }}
           body: |
             Signed Meltype Android IME APK for arm64-v8a (Android 8.0 or newer).
             Version code: ${{ needs.build.outputs.version_code }}.
-            The APK signature and release certificate were verified before upload.
+            Signing mode: **${{ needs.build.outputs.signing_mode }}**.
+            The APK signature was verified before upload.
+            ${{ needs.build.outputs.signing_notice }}
             A SHA-256 checksum is included alongside the APK.
             Licensed under GNU GPL version 3 or later, without warranty.
             Corresponding source, dependency source archives and build instructions
