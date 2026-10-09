@@ -10,19 +10,19 @@ on:
         description: "Successful Android workflow run containing the APK and corresponding source"
         type: number
         required: true
-        default: 37857183833
+        default: 37897639765
       version:
         description: "Version already embedded in the APK (major.minor.patch)"
         type: string
         required: true
-        default: "0.2.0"
+        default: "0.2.1"
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: android-publish-${{ inputs.version || '0.2.0' }}
+  group: android-publish-${{ inputs.version || '0.2.1' }}
   cancel-in-progress: false
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
       - name: Validate version
         id: config
         env:
-          APP_VERSION: ${{ inputs.version || '0.2.0' }}
+          APP_VERSION: ${{ inputs.version || '0.2.1' }}
         run: |
           python3 - <<'PY'
           import os
@@ -51,7 +51,7 @@ jobs:
         id: build
         uses: actions/github-script@v7
         env:
-          SOURCE_RUN_ID: ${{ inputs.run_id || '37857183833' }}
+          SOURCE_RUN_ID: ${{ inputs.run_id || '37897639765' }}
           RELEASE_TAG: ${{ steps.config.outputs.tag }}
         with:
           script: |
@@ -130,6 +130,7 @@ jobs:
           make_latest: "false"
           body: |
             Android 8.0 以降・arm64-v8a 向けの開発用署名 APK です。
+            ${{ steps.config.outputs.version == '0.2.1' && 'v0.2.1: 配色・キー操作・変換・学習を変更できる15項目の設定画面を追加しました。アプリの「Meltype の設定」またはキーボードの歯車から開けます。' || '' }}
             APK の署名・バージョン・チェックサムを検証してから公開しています。
             別ビルドと署名キーが異なる場合は旧版のアンインストールが必要で、設定・学習データが削除されます。
             APK と同じビルドの対応ソース、依存ソース、GPL・第三者通知を添付しています。
