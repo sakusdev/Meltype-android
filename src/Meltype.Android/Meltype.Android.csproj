@@ -6,8 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationId>org.sakusdev.meltype.android</ApplicationId>
     <ApplicationTitle>Meltype for Android</ApplicationTitle>
-    <ApplicationVersion>2001</ApplicationVersion>
-    <ApplicationDisplayVersion>0.2.1</ApplicationDisplayVersion>
+    <ApplicationVersion>2002</ApplicationVersion>
+    <ApplicationDisplayVersion>0.2.2</ApplicationDisplayVersion>
     <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <RuntimeIdentifier>android-arm64</RuntimeIdentifier>

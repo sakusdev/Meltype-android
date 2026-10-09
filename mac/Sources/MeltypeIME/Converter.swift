@@ -15,6 +15,8 @@ final class MeltypeConverter {
     // (Meltype.app の直下には置けない: 署名が通らない)。なので、辞書の場所をこちらで渡す。
     private let converter = KanaKanjiConverter(dicdataStore: DicdataStore(dictionaryURL: MeltypeConverter.resource("Dictionary")))
     private let options: ConvertRequestOptions
+    private var resultCache: [String: [Candidate]] = [:]
+    private var cacheOrder: [String] = []
 
     /// 同梱の辞書のバンドル (Contents/Resources に入れている) の中のフォルダー。
     private static func resource(_ name: String) -> URL {
@@ -45,19 +47,28 @@ final class MeltypeConverter {
             sharedContainerURL: directory,
             textReplacer: TextReplacer(emojiDataProvider: { MeltypeConverter.emojiDictionary() }),
             specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
-            metadata: .init(versionString: "Meltype 1.1.0")
+            metadata: .init(versionString: "Meltype \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")")
         )
     }
 
     /// ひらがな全体に対する変換結果 (入力をすべて使ったものだけ、よい順)。
     private func results(for hiragana: String) -> [Candidate] {
+        if let cached = resultCache[hiragana] { return cached }
         var composing = ComposingText()
         composing.insertAtCursorPosition(hiragana, inputStyle: .direct)
         let results = converter.requestCandidates(composing, options: options)
-        converter.stopComposition()
         let count = hiragana.count
         // 入力 (ひらがな) をすべて使った候補だけ (.direct で入れたので、入力の文字数 = ひらがなの文字数)
-        return results.mainResults.filter { $0.composingCount == .inputCount(count) || $0.composingCount == .surfaceCount(count) }
+        let candidates = results.mainResults.filter { $0.composingCount == .inputCount(count) || $0.composingCount == .surfaceCount(count) }
+        // Keep the engine's previous lattice for incremental conversion; bound retained results.
+        if count <= 256 {
+            if cacheOrder.count >= 64 {
+                resultCache.removeValue(forKey: cacheOrder.removeFirst())
+            }
+            resultCache[hiragana] = candidates
+            cacheOrder.append(hiragana)
+        }
+        return candidates
     }
 
     /// 文節に区切った変換結果 (読みをつなげると元のひらがなになる)。変換できなければ空。
