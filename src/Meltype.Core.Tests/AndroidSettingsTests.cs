@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 sakusdev
 
 using Meltype.Android;
 using Meltype.Composition;
@@ -63,6 +64,46 @@ internal static class AndroidSettingsTests
             allowPersonalizedLearning: false, settingsOverride: new Settings { Enabled = false });
         Assert.True(!session.HandleKey('K', 'k', false, false, false, false).Consumed,
             "supplied settings must replace the platform's config.json");
+    }
+
+    [Test]
+    public static void SessionFactory_AutomaticSpacingWorksWithLearningDisabled()
+    {
+        foreach (var spacing in new[] { false, true })
+        {
+            var session = MeltypeSession.CreateDefault(new CompositionTests.FakeConverter(), null, null,
+                allowPersonalizedLearning: false, settingsOverride: new Settings { SpaceAroundEnglish = false },
+                autoSpacing: spacing);
+            foreach (var character in "seeyouagain")
+                session.HandleKey(char.ToUpperInvariant(character), character, false, false, false, false);
+            var committed = session.HandleKey(VirtualKeys.Return, null, false, false, false, false);
+            Assert.Equal(spacing ? "see you again" : "seeyouagain", string.Concat(committed.Commits.Select(edit => edit.Text)),
+                "the upstream spacing option must remain independent of Android's learning permission");
+        }
+    }
+
+    private sealed class LearningConverter : IKanjiConverter, ILearningConverter, IDisposable
+    {
+        public ManualResetEventSlim Learned { get; } = new();
+        public string? Convert(string hiragana) => "日本語";
+        public IReadOnlyList<ConversionClause>? ConvertClauses(string hiragana, string? context = null) =>
+            [new(hiragana, "日本語")];
+        public void Learn(string? context, IReadOnlyList<ConversionClause> clauses) => Learned.Set();
+        public void Dispose() => Learned.Dispose();
+    }
+
+    [Test]
+    public static void SessionFactory_AutomaticSpacingCannotEnableNativeLearning()
+    {
+        using var converter = new LearningConverter();
+        var session = MeltypeSession.CreateDefault(converter, null, null, allowPersonalizedLearning: false,
+            settingsOverride: new KeyboardOptions { PersonalizedLearning = false }.ToCoreSettings(), autoSpacing: true);
+        foreach (var character in "nihongo")
+            session.HandleKey(char.ToUpperInvariant(character), character, false, false, false, false);
+        session.HandleKey(VirtualKeys.Space, null, false, false, false, false);
+        var committed = session.HandleKey(VirtualKeys.Return, null, false, false, false, false);
+        Assert.True(committed.Commits.Any(edit => edit.Text.Contains("日本語")), "Japanese conversion must still work without learning");
+        Assert.True(!converter.Learned.Wait(TimeSpan.FromMilliseconds(200)), "spacing must not re-enable Mozc learning");
     }
 
     [Test]

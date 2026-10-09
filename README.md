@@ -52,6 +52,14 @@ PC 版のトレイメニュー・Windows IME 切替・自動更新などを、�
 パスワード・数字・URL などの入力欄に応じた動作と、アプリが指定する学習禁止は設定より優先します。
 「設定を初期値に戻す」から設定だけを戻せます。詳しくは [Android の設定項目](android/README.md#設定項目)。
 
+## 上流の更新
+
+上流の [Meltype v1.1.1 のコード](https://github.com/yksr-melt/Meltype/commit/ccb541b9a2f2f41034760c500ee8b38d0d932771) を 2026-10-09 に取り込みました。
+Android v0.2.2 はローマ字・日英混在入力の修正と、日付・時刻の変換候補を含みます。
+Android の設定・入力欄ごとの学習制御・署名 APK の配布は、この fork の実装を保持しています。
+上流の実験的な「区切りを点数で選ぶ」機能は、既定では無効のままです。
+デスクトップ版の最新の案内は [上流の README](https://github.com/yksr-melt/Meltype#readme) を参照してください。
+
 ## ビルドと署名 Release
 
 ビルド、開発用署名での公開、配布用の署名設定は [android/README.md](android/README.md) にあります。

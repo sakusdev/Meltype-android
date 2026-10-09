@@ -14,7 +14,7 @@ namespace Meltype.Composition;
 /// 未確定のうちは何度でも表示を作り直せるので、ここでの判定は IME 自動切替より積極的でよいが、
 /// 既定は日本語で、英語と判断できる根拠があるときだけ英字にする。
 /// </summary>
-public sealed class CompositionDetector
+public sealed partial class CompositionDetector
 {
     private readonly RomajiDetector _romaji;
     private readonly DictionaryDetector _japanese;
@@ -67,6 +67,16 @@ public sealed class CompositionDetector
     public ProperNouns ProperNouns => _proper;
 
     /// <summary>
+    /// 区切りを点数で選ぶか (α版。設定「区切りを点数で選ぶ (α版)」)。null か false なら今までどおり、先頭から順に最長の英語の区間を取る。
+    /// 環境変数 MELTYPE_SCORED=1 でも ON にできる (品質テストを両方で比べるため)。
+    /// </summary>
+    public Func<bool>? UseScoredSegmentation { get; set; }
+
+    private static readonly bool ScoredByEnvironment = Environment.GetEnvironmentVariable("MELTYPE_SCORED") == "1";
+
+    private bool ScoredSegmentation => ScoredByEnvironment || UseScoredSegmentation?.Invoke() == true;
+
+    /// <summary>
     /// 単位列 (+ 入力途中の子音) を英語区間と日本語区間に分ける。
     /// 先頭から見て、ある単位から始まる最長の「英語と言える」区間があればそこを英語にする。
     /// </summary>
@@ -78,7 +88,50 @@ public sealed class CompositionDetector
     public IReadOnlyList<CompositionSegment> Segment(IReadOnlyList<CompositionUnit> units, string pending, bool? precedingEnglish = null, bool? followingEnglish = null,
         DetectionLevel level = DetectionLevel.Balanced, bool englishSentence = false, bool kanaInput = false, bool final = false)
     {
-        var segments = FindSpans(units, pending, precedingEnglish, followingEnglish, level, englishSentence && precedingEnglish == true, kanaInput, final);
+        var token = Raw(units, 0, units.Count) + pending;
+        // Structured Latin tokens are opaque; their components are not Japanese readings.
+        if (!kanaInput && token.All(c => c is >= '!' and <= '~') &&
+            (token.Contains('@') && token.Any(char.IsAsciiLetter) || token.Contains('_') || token.Contains("://", StringComparison.Ordinal) ||
+             System.Text.RegularExpressions.Regex.Matches(token, "[a-z][A-Z][a-z]").Count >= 2))
+            return [new CompositionSegment(true, "", token)];
+        // A romaji token can cross an English boundary (reflect + sa becomes tsa).
+        // Recognize an unambiguous English verb before parsing its Japanese conjugation.
+        if (!kanaInput && level != DetectionLevel.Manual)
+        {
+            var raw = Raw(units, 0, units.Count) + pending;
+            // Require two recognized words around a particle: never split arbitrary names
+            // or identifiers merely because they contain a romaji particle.
+            if (raw.All(char.IsAsciiLetter) && !IsKnownEnglishWord(raw))
+            {
+                for (var end = raw.Length - 3; end >= 3; end--)
+                {
+                    var word = raw[..end];
+                    if (!IsKnownEnglishWord(word) || _romaji.AnalyzeFragment(word.ToLowerInvariant()).IsValid) continue;
+                    foreach (var particle in TrailingParticles)
+                    {
+                        var rest = raw[end..];
+                        if (!rest.StartsWith(particle, StringComparison.Ordinal) ||
+                            !IsKnownEnglishWord(rest[particle.Length..])) continue;
+                        return [new CompositionSegment(true, "", word),
+                            new CompositionSegment(false, _romaji.ConvertLenient(particle, final: true), particle),
+                            new CompositionSegment(true, "", rest[particle.Length..])];
+                    }
+                }
+            }
+            for (var end = raw.Length - 2; end >= 4; end--)
+            {
+                var word = raw[..end];
+                var rest = raw[end..].ToLowerInvariant();
+                if (!rest.StartsWith("s", StringComparison.Ordinal)) continue;
+                var analysis = _romaji.AnalyzeFragment(rest);
+                if (analysis.IsValid && IsSuruForm(analysis.Kana) && word.All(char.IsAsciiLetter) &&
+                    !_romaji.AnalyzeFragment(word.ToLowerInvariant()).IsValid && IsKnownEnglishWord(word))
+                    return [new CompositionSegment(true, "", word), new CompositionSegment(false, analysis.Kana + analysis.Partial, raw[end..])];
+            }
+        }
+        var segments = ScoredSegmentation && !kanaInput
+            ? FindSpansScored(units, pending, precedingEnglish, followingEnglish, level, englishSentence && precedingEnglish == true, final)
+            : FindSpans(units, pending, precedingEnglish, followingEnglish, level, englishSentence && precedingEnglish == true, kanaInput, final);
         if (kanaInput) return segments;
         // 辞書にない英単語 (stackoverflow など) を最初から打っているなら全体を英語にする。
         // 途中の区間 (… flow) だけを英語にすると「sたcこvえrflow」のようになってしまう。
@@ -266,7 +319,7 @@ public sealed class CompositionDetector
     }
 
     /// <summary>スペルチェッカーが正しいと言う英単語か、よくある打ち間違い (teh、recieve) か。</summary>
-    private bool IsSpellWord(string lower) => SpellChecker is { } checker && (checker.IsWord(lower) || checker.AutoCorrection(lower) is not null);
+    internal bool IsSpellWord(string lower) => SpellChecker is { } checker && (checker.IsWord(lower) || checker.AutoCorrection(lower) is not null);
 
     /// <summary>よくある英語の打ち間違いなら正しい綴り (teh → the)。大文字で始まる語は大文字で始める。</summary>
     public string? EnglishAutoCorrection(string word)
@@ -394,7 +447,7 @@ public sealed class CompositionDetector
         }
         // ローマ字として最後まで読めても、日本語の語にならない英単語 (feature = ふぇあつれ、remote = れもて。dictionaries/english-readable.txt、#12)。
         // 日本語の語の始まりにもならない語だけを入れているので、後ろに日本語が続いても (feature|wo) 英語。
-        if (lower.Length >= 4 && ReadableEnglish.Value.ContainsWord(lower)) return true;
+        if (lower.Length >= 3 && ReadableEnglish.Value.ContainsWord(lower)) return true;
         // c 行の綴りで読める語 (care = かれ、can = かん) が日本語の途中にあるなら、日本語を打っている (fucarete → ふかれて、shoucanshi → しょうかんし)。
         // 入力全体がその語だけのときは英語。
         if (!(startOfInput && atEnd))
