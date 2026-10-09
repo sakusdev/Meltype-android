@@ -14,5 +14,6 @@
     <Compile Include="..\Meltype.Android\EditorInputPolicy.cs" Link="Android\EditorInputPolicy.cs" />
     <Compile Include="..\Meltype.Android\EditorSelectionTracker.cs" Link="Android\EditorSelectionTracker.cs" />
     <Compile Include="..\Meltype.Android\EditorText.cs" Link="Android\EditorText.cs" />
+    <Compile Include="..\Meltype.Android\KeyboardOptions.cs" Link="Android\KeyboardOptions.cs" />
   </ItemGroup>
 </Project>

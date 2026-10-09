@@ -111,6 +111,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private readonly List<string> _recentEmojis = [];
     private readonly EditorSelectionTracker _selection = new();
     private EditorInputPolicy _inputPolicy = new(false, false, false, true);
+    private KeyboardOptions _keyboardOptions = new();
     private InputLayer _preferredTextLayer = InputLayer.Japanese;
 
     private MeltypeSession? _session;
@@ -146,6 +147,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         get
         {
+            if (_keyboardOptions.Theme != KeyboardTheme.System)
+                return _keyboardOptions.Theme == KeyboardTheme.Dark;
             var mode = (int)(Resources?.Configuration?.UiMode ?? 0);
             return (mode & 0x30) == 0x20;
         }
@@ -169,6 +172,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         try
         {
+            _keyboardOptions = AndroidSettingsStore.Load(this);
+            _preferredTextLayer = AndroidSettingsStore.PreferredEnglish(this) ? InputLayer.Latin : InputLayer.Japanese;
             var baseDirectory = FilesDir?.AbsolutePath ?? CacheDir?.AbsolutePath ?? ".";
             var profileDirectory = Path.Combine(baseDirectory, "mozc-profile");
             var dataFile = ExtractMozcData(baseDirectory);
@@ -222,29 +227,29 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         try
         {
+            var previousOptions = _keyboardOptions;
+            _keyboardOptions = AndroidSettingsStore.Load(this);
+            if (!_keyboardOptions.PersonalizedLearning) _recentEmojis.Clear();
             _inputPolicy = EditorInputPolicy.From((int)(attribute?.InputType ?? 0), (int)(attribute?.ImeOptions ?? 0));
             _selection.Reset(attribute?.InitialSelStart ?? -1, attribute?.InitialSelEnd ?? -1);
             _inputLayer = _inputPolicy.Numeric ? InputLayer.Numbers :
-                _inputPolicy.Direct ? InputLayer.Latin : _preferredTextLayer;
+                _keyboardOptions.StartInEnglish(_inputPolicy, _preferredTextLayer == InputLayer.Latin)
+                    ? InputLayer.Latin : InputLayer.Japanese;
             _direct = _inputLayer != InputLayer.Japanese;
             _emojiPanelOpen = false;
             _shift = false;
             DismissKeyPreview();
-            var converter = _converter ?? new AndroidFallbackConverter();
-            Func<string, IReadOnlyList<string>>? moreCandidates =
-                _nativeMozc is null ? null : _nativeMozc.Candidates;
-
-            _session = MeltypeSession.CreateDefault(
-                converter,
-                moreCandidates,
-                wordChecker: null,
-                allowPersonalizedLearning: _inputPolicy.AllowLearning);
-            _session.Direct = _direct;
+            CreateSession();
             _hasComposingText = false;
 
             UpdateEnterKey(attribute);
-            RebuildKeyArea();
-            ShowIdleTopBar();
+            if (_keyArea is not null && previousOptions != _keyboardOptions)
+                SetInputView(BuildInputView());
+            else
+            {
+                RebuildKeyArea();
+                ShowIdleTopBar();
+            }
         }
         catch (Exception ex)
         {
@@ -253,7 +258,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
                 new AndroidFallbackConverter(),
                 moreCandidates: null,
                 wordChecker: null,
-                allowPersonalizedLearning: _inputPolicy.AllowLearning);
+                allowPersonalizedLearning: _keyboardOptions.CanLearn(_inputPolicy),
+                settingsOverride: _keyboardOptions.ToCoreSettings());
             _session.Direct = _direct;
             _hasComposingText = false;
         }
@@ -262,8 +268,33 @@ public sealed class MeltypeInputMethodService : InputMethodService
     public override void OnStartInputView(EditorInfo? info, bool restarting)
     {
         base.OnStartInputView(info, restarting);
+        SafeRun("ReloadSettings", () =>
+        {
+            var updated = AndroidSettingsStore.Load(this);
+            if (updated == _keyboardOptions) return;
+
+            // Finish the editor's visible text without teaching the old session
+            // after the user has disabled learning in the settings screen.
+            _session?.ResetInputContext();
+            FinishEditorComposition();
+            _keyboardOptions = updated;
+            if (!_keyboardOptions.PersonalizedLearning) _recentEmojis.Clear();
+            CreateSession();
+            SetInputView(BuildInputView());
+        });
         Log.Info(LogTag,
             $"input-view start restart={restarting} package={info?.PackageName ?? "?"} inputType={(int)(info?.InputType ?? 0)} imeOptions={(int)(info?.ImeOptions ?? 0)}");
+    }
+
+    private void CreateSession()
+    {
+        _session = MeltypeSession.CreateDefault(
+            _converter ?? new AndroidFallbackConverter(),
+            _nativeMozc is null ? null : _nativeMozc.Candidates,
+            wordChecker: null,
+            allowPersonalizedLearning: _keyboardOptions.CanLearn(_inputPolicy),
+            settingsOverride: _keyboardOptions.ToCoreSettings());
+        _session.Direct = _direct;
     }
 
     public override void OnUpdateSelection(int oldSelStart, int oldSelEnd, int newSelStart, int newSelEnd, int candidatesStart, int candidatesEnd)
@@ -535,8 +566,9 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _modeButton = CreateKey(string.Empty, CycleInputLayer, KeyKind.PillSpecial);
         bottom.AddView(_modeButton, WeightedKeyParams(1.45f));
 
-        var comma = _inputLayer == InputLayer.Japanese ? "、" : ",";
-        var period = _inputLayer == InputLayer.Japanese ? "。" : ".";
+        var (japaneseComma, japanesePeriod) = _keyboardOptions.PunctuationCharacters;
+        var comma = _inputLayer == InputLayer.Japanese ? japaneseComma : ",";
+        var period = _inputLayer == InputLayer.Japanese ? japanesePeriod : ".";
         bottom.AddView(CreateDirectKey(comma), WeightedKeyParams(.92f));
         bottom.AddView(
             CreateIconKey(Resource.Drawable.ic_toolbar_emoji, ShowEmojiBar, KeyKind.Special, "絵文字"),
@@ -656,7 +688,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         try
         {
             CommitDirectText(emoji);
-            if (_inputPolicy.AllowLearning)
+            if (_keyboardOptions.CanLearn(_inputPolicy))
             {
                 _recentEmojis.Remove(emoji);
                 _recentEmojis.Insert(0, emoji);
@@ -778,7 +810,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
             },
             Gravity = GravityFlags.Center,
             Elevation = 0,
-            HapticFeedbackEnabled = true,
+            HapticFeedbackEnabled = _keyboardOptions.KeyVibration,
+            SoundEffectsEnabled = _keyboardOptions.KeySound,
             Focusable = false,
             FocusableInTouchMode = false
         };
@@ -802,7 +835,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             try
             {
                 if (e.Event?.Action == MotionEventActions.Down)
-                    button.PerformHapticFeedback(FeedbackConstants.VirtualKey);
+                    SafeHaptic(button);
             }
             catch (Exception ex)
             {
@@ -889,7 +922,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private LinearLayout.LayoutParams WeightedKeyParams(float weight = 1f)
     {
-        var p = new LinearLayout.LayoutParams(0, Dp(48), weight);
+        var p = new LinearLayout.LayoutParams(0, Dp(_keyboardOptions.KeyHeightDp), weight);
         p.SetMargins(Dp(2), Dp(2), Dp(2), Dp(2));
         return p;
     }
@@ -1094,6 +1127,12 @@ public sealed class MeltypeInputMethodService : InputMethodService
             if (motion is null)
                 return;
 
+            if (!_keyboardOptions.SpaceSwipe)
+            {
+                _spaceWasSwiped = false;
+                return;
+            }
+
             try
             {
                 switch (motion.Action)
@@ -1142,6 +1181,12 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         button.Touch += (_, e) =>
         {
+            if (!_keyboardOptions.BackspaceRepeat)
+            {
+                StopBackspaceRepeat();
+                _backspaceRepeated = false;
+                return;
+            }
             var action = e.Event?.Action;
             if (action == MotionEventActions.Down)
             {
@@ -1204,7 +1249,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void ShowKeyPreview(MaterialButton button)
     {
-        if (_inputPolicy.Sensitive) return;
+        if (_inputPolicy.Sensitive || !_keyboardOptions.KeyPreview) return;
         DismissKeyPreview();
 
         var label = new TextView(UiContext)
@@ -1287,6 +1332,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void SafeHaptic(View view)
     {
+        if (!_keyboardOptions.KeyVibration) return;
         try
         {
             view.PerformHapticFeedback(FeedbackConstants.VirtualKey);
@@ -1363,8 +1409,11 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         if (_inputPolicy.Sensitive && layer == InputLayer.Japanese)
             layer = _inputPolicy.Numeric ? InputLayer.Numbers : InputLayer.Latin;
-        if (!_inputPolicy.Sensitive && layer is InputLayer.Japanese or InputLayer.Latin)
+        if (!_inputPolicy.Direct && layer is InputLayer.Japanese or InputLayer.Latin)
+        {
             _preferredTextLayer = layer;
+            AndroidSettingsStore.SavePreferredEnglish(this, layer == InputLayer.Latin);
+        }
         _emojiPanelOpen = false;
         _inputLayer = layer;
         _direct = layer != InputLayer.Japanese;
@@ -1437,7 +1486,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void OpenSettings()
     {
-        var intent = new Intent(this, typeof(MainActivity));
+        var intent = new Intent(this, typeof(SettingsActivity));
         intent.AddFlags(ActivityFlags.NewTask);
         StartActivity(intent);
     }
@@ -1711,7 +1760,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
             Focusable = false,
             FocusableInTouchMode = false,
             Clickable = true,
-            HapticFeedbackEnabled = true
+            HapticFeedbackEnabled = _keyboardOptions.KeyVibration,
+            SoundEffectsEnabled = _keyboardOptions.KeySound
         };
         button.SetImageResource(iconResource);
         button.SetColorFilter(KeyForeground);
@@ -1726,7 +1776,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
                 {
                     case MotionEventActions.Down:
                         button.Alpha = 0.62f;
-                        button.PerformHapticFeedback(FeedbackConstants.VirtualKey);
+                        SafeHaptic(button);
                         break;
                     case MotionEventActions.Up:
                     case MotionEventActions.Cancel:

@@ -68,8 +68,16 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Test Core and Android input policies
+        run: dotnet run --project src/Meltype.Core.Tests/Meltype.Core.Tests.csproj -c Release
+
       - name: Install Android workload
         run: dotnet workload install android --source https://api.nuget.org/v3/index.json
+
+      - name: Compile Android UI
+        run: |
+          dotnet restore src/Meltype.Android/Meltype.Android.csproj --source https://api.nuget.org/v3/index.json
+          dotnet build src/Meltype.Android/Meltype.Android.csproj -c Debug --no-restore
 
       - name: Bazelisk
         run: |

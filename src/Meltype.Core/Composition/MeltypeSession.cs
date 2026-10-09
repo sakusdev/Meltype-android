@@ -133,12 +133,13 @@ public sealed class MeltypeSession
     /// <summary>
     /// 既定の辞書・学習データ (保存場所は <see cref="AppPaths"/>) で作る。converter は OS 側の変換エンジン、
     /// moreCandidates は読みに対する候補の一覧 (無ければ null)、wordChecker は OS のスペルチェッカー (無ければ null)。
+    /// settingsOverride があれば、config.json の代わりにホストの設定を使う (Android の設定画面など)。
     /// </summary>
-    public static MeltypeSession CreateDefault(IKanjiConverter converter, Func<string, IReadOnlyList<string>>? moreCandidates, IWordChecker? wordChecker, bool allowPersonalizedLearning = true)
+    public static MeltypeSession CreateDefault(IKanjiConverter converter, Func<string, IReadOnlyList<string>>? moreCandidates, IWordChecker? wordChecker, bool allowPersonalizedLearning = true, Settings? settingsOverride = null)
     {
         AppPaths.MigrateFromOldName();
         Directory.CreateDirectory(AppPaths.DataDirectory);
-        var settings = Settings.Load(AppPaths.ConfigFile);
+        var settings = settingsOverride ?? Settings.Load(AppPaths.ConfigFile);
         // 設定で「ファイルにログを書く」を ON にしていれば、Mac でも meltype.log に書く (動かないときの調査用)。
         Diagnostics.Log.SetFileOutput(allowPersonalizedLearning && settings.FileLog ? AppPaths.LogFile : null);
         Diagnostics.Log.RecordText = allowPersonalizedLearning && settings.LogTypedText;

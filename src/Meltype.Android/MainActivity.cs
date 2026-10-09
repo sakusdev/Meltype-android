@@ -74,6 +74,11 @@ public sealed class MainActivity : Activity
         };
         root.AddView(choose, FullWidthButtonParams());
 
+        var settings = new MaterialButton(this) { Text = "Meltype の設定" };
+        settings.SetAllCaps(false);
+        settings.Click += (_, _) => StartActivity(new Intent(this, typeof(SettingsActivity)));
+        root.AddView(settings, FullWidthButtonParams());
+
         var note = new TextView(this)
         {
             Text = "Meltype.Core の英語 / 日本語判定と、arm64-v8a 向け Native Mozc 変換を利用します。",
