@@ -168,6 +168,12 @@ GPL の対応ソースの範囲と点検結果は [LICENSE-COMPLIANCE.md](LICENS
 通常の branch / PR / 手動ビルドは Artifacts に APK を保存します。4つの署名 Secrets が揃っていれば配布用キーを使い、未登録の場合や Secret を利用できない fork PR では開発用署名でビルドします。Release 公開はタグに限定されます。
 Actions の手動実行では `version` を指定でき、空欄なら project の `ApplicationDisplayVersion` を使います。
 
+### 成功済み APK を再ビルドせず公開する
+
+`Publish built Android APK` workflow の **Run workflow** で、成功した `Android` workflow の run ID と APK に組み込まれた `version` を指定できます。開発用署名 APK を Pre-release として公開します。
+対象ビルドはこのリポジトリのもので、ソースが `main` に取り込まれ、公開用 workflow・文書以外に差分がないことを確認します。APK と対応ソースの両方を同じ run から取得し、署名・版・チェックサムを検証します。
+既存のタグが別の commit を指す場合は停止します。初回の `0.2.0` は、公開用 workflow の追加時に成功済みの run `37857183833` から公開します。
+
 ## インストール後
 
 1. Meltype for Android を開く

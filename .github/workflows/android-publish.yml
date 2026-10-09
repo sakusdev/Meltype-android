@@ -1,0 +1,145 @@
+name: Publish built Android APK
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/android-publish.yml"]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Successful Android workflow run containing the APK and corresponding source"
+        type: number
+        required: true
+        default: 37857183833
+      version:
+        description: "Version already embedded in the APK (major.minor.patch)"
+        type: string
+        required: true
+        default: "0.2.0"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: android-publish-${{ inputs.version || '0.2.0' }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate version
+        id: config
+        env:
+          APP_VERSION: ${{ inputs.version || '0.2.0' }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from android.release_config import release_config
+          config = release_config('refs/tags/android-v' + os.environ['APP_VERSION'], '', '', {})
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for name, value in config.items():
+                  output.write(f'{name}={value}\n')
+          PY
+      - name: Validate successful build and merged source
+        id: build
+        uses: actions/github-script@v7
+        env:
+          SOURCE_RUN_ID: ${{ inputs.run_id || '37857183833' }}
+          RELEASE_TAG: ${{ steps.config.outputs.tag }}
+        with:
+          script: |
+            const runId = Number(process.env.SOURCE_RUN_ID);
+            if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error('Invalid run ID');
+            const {owner, repo} = context.repo;
+            const {data: run} = await github.rest.actions.getWorkflowRun({owner, repo, run_id: runId});
+            if (run.name !== 'Android' || run.status !== 'completed' || run.conclusion !== 'success' ||
+                run.head_repository?.full_name !== `${owner}/${repo}`) {
+              throw new Error('Select a successful Android build from this repository');
+            }
+            const {data: comparison} = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${run.head_sha}...${context.sha}`
+            });
+            const allowed = new Set(['.github/workflows/android-publish.yml', 'README.md',
+                                     'android/README.md', 'docs/RELEASE.md']);
+            if (!['ahead', 'identical'].includes(comparison.status) || !comparison.files ||
+                comparison.files.length >= 300 || comparison.files.some(file => !allowed.has(file.filename))) {
+              throw new Error('The build source must be merged and match main except publishing documentation');
+            }
+            try {
+              const {data: ref} = await github.rest.git.getRef({owner, repo, ref: `tags/${process.env.RELEASE_TAG}`});
+              if (ref.object.sha !== run.head_sha) throw new Error('Release tag already points to another commit');
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            core.setOutput('run_id', String(runId));
+            core.setOutput('source_sha', run.head_sha);
+      - uses: actions/download-artifact@v4
+        with:
+          name: meltype-android-arm64-apk
+          path: dist/android
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.build.outputs.run_id }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: meltype-android-source
+          path: dist/android
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.build.outputs.run_id }}
+      - name: Verify APK, version and corresponding source checksums
+        env:
+          APK_NAME: ${{ steps.config.outputs.apk_name }}
+          APP_VERSION: ${{ steps.config.outputs.version }}
+          APP_VERSION_CODE: ${{ steps.config.outputs.version_code }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          destination = Path('dist/android')
+          apk = destination / os.environ['APK_NAME']
+          source = destination / f"Meltype-Android-{os.environ['APP_VERSION']}-source.tar.gz"
+          for path in (apk, source, destination / 'NOTICE.txt', destination / 'DEPENDENCIES.json'):
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise RuntimeError(f'Missing distribution file: {path}')
+          json.loads((destination / 'DEPENDENCIES.json').read_text())
+          for path in (apk, source):
+              subprocess.run(['sha256sum', '-c', path.name + '.sha256'], cwd=destination, check=True)
+          sdk = Path(os.environ.get('ANDROID_HOME') or os.environ['ANDROID_SDK_ROOT'])
+          signer = max((sdk / 'build-tools').glob('*/apksigner'),
+                       key=lambda path: tuple(int(n) for n in path.parent.name.split('.') if n.isdigit()))
+          subprocess.run([str(signer), 'verify', '--verbose', '--print-certs', str(apk)], check=True)
+          badging = subprocess.check_output([str(signer.parent / 'aapt'), 'dump', 'badging', str(apk)], text=True)
+          package = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging, re.M)
+          if not package or package.groups() != ('org.sakusdev.meltype.android',
+                                                 os.environ['APP_VERSION_CODE'], os.environ['APP_VERSION']):
+              raise RuntimeError('APK identity or version does not match the requested release')
+          PY
+      - name: Publish development release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.config.outputs.tag }}
+          target_commitish: ${{ steps.build.outputs.source_sha }}
+          name: Meltype for Android ${{ steps.config.outputs.version }}
+          prerelease: true
+          make_latest: "false"
+          body: |
+            Android 8.0 以降・arm64-v8a 向けの開発用署名 APK です。
+            APK の署名・バージョン・チェックサムを検証してから公開しています。
+            別ビルドと署名キーが異なる場合は旧版のアンインストールが必要で、設定・学習データが削除されます。
+            APK と同じビルドの対応ソース、依存ソース、GPL・第三者通知を添付しています。
+            ソース内の `Meltype/android/README.md` にビルド・インストール手順があります。
+            元のビルド: https://github.com/${{ github.repository }}/actions/runs/${{ steps.build.outputs.run_id }}
+          files: |
+            dist/android/${{ steps.config.outputs.apk_name }}
+            dist/android/${{ steps.config.outputs.apk_name }}.sha256
+            dist/android/Meltype-Android-${{ steps.config.outputs.version }}-source.tar.gz
+            dist/android/Meltype-Android-${{ steps.config.outputs.version }}-source.tar.gz.sha256
+            dist/android/DEPENDENCIES.json
+            dist/android/NOTICE.txt
+          fail_on_unmatched_files: true

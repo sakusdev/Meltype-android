@@ -7,6 +7,7 @@ Android は `android-v<major.minor.patch>` タグと `.github/workflows/android.
 署名設定、APK と versionCode の更新、対応ソースと通知の添付手順は [android/README.md](../android/README.md) にあります。
 署名 Secrets の部分的な設定・APK 署名・配布用キーの証明書・ライセンス通知・依存ソースの検証が失敗した場合、公開を停止します。
 公開後は APK に対応する source archive を削除せず、利用者が取得できる状態を維持してください。
+タグが未作成で APK が Artifacts にだけある場合は、`Publish built Android APK` の手動実行でも公開できます。成功した run ID と APK の版を指定し、開発用署名 APK と対応ソースを同じビルドから取得して検証します。
 以下は上流の Windows / Mac / Linux 向けの手順です。Android の署名は任意ではなく、APK の配布に必要です。
 
 ## 版を出す (テスト版・公開版共通)
