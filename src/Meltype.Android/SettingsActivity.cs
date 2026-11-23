@@ -20,7 +20,8 @@ public sealed class SettingsActivity : Activity
     {
         base.OnCreate(savedInstanceState);
         _options = AndroidSettingsStore.Load(this);
-        var scroll = new ScrollView(this) { FillViewport = true, FitsSystemWindows = true };
+        var scroll = new ScrollView(this) { FillViewport = true };
+        scroll.SetFitsSystemWindows(true);
         _root = new LinearLayout(this) { Orientation = Orientation.Vertical };
         _root.SetPadding(Dp(20), Dp(28), Dp(20), Dp(32));
         scroll.AddView(_root);
