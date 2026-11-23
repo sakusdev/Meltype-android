@@ -20,7 +20,7 @@ public sealed class SettingsActivity : Activity
     {
         base.OnCreate(savedInstanceState);
         _options = AndroidSettingsStore.Load(this);
-        var scroll = new ScrollView(this) { FillViewport = true };
+        var scroll = new ScrollView(this) { FillViewport = true, FitsSystemWindows = true };
         _root = new LinearLayout(this) { Orientation = Orientation.Vertical };
         _root.SetPadding(Dp(20), Dp(28), Dp(20), Dp(32));
         scroll.AddView(_root);
@@ -73,7 +73,7 @@ public sealed class SettingsActivity : Activity
             _options.TranslationCandidates, value => Save(_options with { TranslationCandidates = value }));
 
         Section("プライバシー");
-        Toggle("入力内容から学習する", "Meltype・Mozc の学習と、この起動中の最近使った絵文字を更新します。パスワード欄や学習禁止の入力欄では常に停止します。",
+        Toggle("入力内容から学習する", "Meltype・Mozc の学習と、最近使った絵文字の保存を更新します。パスワード欄や学習禁止の入力欄では常に停止します。",
             _options.PersonalizedLearning, value => Save(_options with { PersonalizedLearning = value }));
         _root.AddView(new TextView(this)
         {

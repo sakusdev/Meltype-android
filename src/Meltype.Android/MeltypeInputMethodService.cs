@@ -110,6 +110,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private readonly List<(MaterialButton Button, char Character)> _letterButtons = [];
     private readonly List<string> _recentEmojis = [];
     private readonly EditorSelectionTracker _selection = new();
+    private readonly ShiftState _shift = new();
     private EditorInputPolicy _inputPolicy = new(false, false, false, true);
     private KeyboardOptions _keyboardOptions = new();
     private InputLayer _preferredTextLayer = InputLayer.Japanese;
@@ -118,6 +119,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private IKanjiConverter? _converter;
     private MozcNativeConverter? _nativeMozc;
     private Context? _uiContext;
+    private global::Android.Graphics.Typeface? _keyTypeface;
+    private HorizontalScrollView? _candidateScroll;
     private LinearLayout? _candidateStrip;
     private LinearLayout? _keyArea;
     private MaterialButton? _modeButton;
@@ -127,6 +130,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private MaterialButton? _backspaceButton;
     private PopupWindow? _keyPreviewPopup;
     private TextView? _keyPreviewText;
+    private bool? _keyPreviewDarkTheme;
     private ActionRunnable? _backspaceRepeatRunnable;
     private bool _backspaceRepeating;
     private bool _backspaceRepeated;
@@ -137,11 +141,15 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private EmojiCategory _emojiCategory = EmojiCategory.Recent;
     private bool _emojiPanelOpen;
     private bool _direct;
-    private bool _shift;
     private bool _hasComposingText;
 
     private Context UiContext =>
         _uiContext ??= new ContextThemeWrapper(this, Resource.Style.MeltypeTheme);
+
+    private global::Android.Graphics.Typeface? KeyTypeface =>
+        _keyTypeface ??= global::Android.Graphics.Typeface.Create(
+            "sans-serif-medium",
+            global::Android.Graphics.TypefaceStyle.Normal);
 
     private bool IsDarkTheme
     {
@@ -155,16 +163,37 @@ public sealed class MeltypeInputMethodService : InputMethodService
     }
 
     // Gboard-inspired neutral surfaces while keeping the app on a Material 3 theme.
-    private Color KeyboardBackground => Color.ParseColor(IsDarkTheme ? "#171814" : "#F3F3F3");
-    private Color KeyBackground => Color.ParseColor(IsDarkTheme ? "#2A2B28" : "#FFFFFF");
-    private Color SpecialKeyBackground => Color.ParseColor(IsDarkTheme ? "#3B3C39" : "#DADCE0");
-    private Color Primary => Color.ParseColor(IsDarkTheme ? "#C8AEFF" : "#7656A8");
-    private Color OnPrimary => Color.ParseColor(IsDarkTheme ? "#2B2430" : "#FFFFFF");
-    private Color PrimaryContainer => Color.ParseColor(IsDarkTheme ? "#47404F" : "#EADDFF");
-    private Color OnPrimaryContainer => Color.ParseColor(IsDarkTheme ? "#F3ECFA" : "#21005D");
-    private Color KeyForeground => Color.ParseColor(IsDarkTheme ? "#F2F2F2" : "#202124");
-    private Color SecondaryForeground => Color.ParseColor(IsDarkTheme ? "#B8BAB5" : "#5F6368");
-    private Color CandidateBackground => Color.ParseColor(IsDarkTheme ? "#242522" : "#EEF0F1");
+    private static readonly Color DarkKeyboardBackground = new(0x17, 0x18, 0x14);
+    private static readonly Color LightKeyboardBackground = new(0xF3, 0xF3, 0xF3);
+    private static readonly Color DarkKeyBackground = new(0x2A, 0x2B, 0x28);
+    private static readonly Color LightKeyBackground = new(0xFF, 0xFF, 0xFF);
+    private static readonly Color DarkSpecialKeyBackground = new(0x3B, 0x3C, 0x39);
+    private static readonly Color LightSpecialKeyBackground = new(0xDA, 0xDC, 0xE0);
+    private static readonly Color DarkPrimary = new(0xC8, 0xAE, 0xFF);
+    private static readonly Color LightPrimary = new(0x76, 0x56, 0xA8);
+    private static readonly Color DarkOnPrimary = new(0x2B, 0x24, 0x30);
+    private static readonly Color LightOnPrimary = new(0xFF, 0xFF, 0xFF);
+    private static readonly Color DarkPrimaryContainer = new(0x47, 0x40, 0x4F);
+    private static readonly Color LightPrimaryContainer = new(0xEA, 0xDD, 0xFF);
+    private static readonly Color DarkOnPrimaryContainer = new(0xF3, 0xEC, 0xFA);
+    private static readonly Color LightOnPrimaryContainer = new(0x21, 0x00, 0x5D);
+    private static readonly Color DarkKeyForeground = new(0xF2, 0xF2, 0xF2);
+    private static readonly Color LightKeyForeground = new(0x20, 0x21, 0x24);
+    private static readonly Color DarkSecondaryForeground = new(0xB8, 0xBA, 0xB5);
+    private static readonly Color LightSecondaryForeground = new(0x5F, 0x63, 0x68);
+    private static readonly Color DarkCandidateBackground = new(0x24, 0x25, 0x22);
+    private static readonly Color LightCandidateBackground = new(0xEE, 0xF0, 0xF1);
+
+    private Color KeyboardBackground => IsDarkTheme ? DarkKeyboardBackground : LightKeyboardBackground;
+    private Color KeyBackground => IsDarkTheme ? DarkKeyBackground : LightKeyBackground;
+    private Color SpecialKeyBackground => IsDarkTheme ? DarkSpecialKeyBackground : LightSpecialKeyBackground;
+    private Color Primary => IsDarkTheme ? DarkPrimary : LightPrimary;
+    private Color OnPrimary => IsDarkTheme ? DarkOnPrimary : LightOnPrimary;
+    private Color PrimaryContainer => IsDarkTheme ? DarkPrimaryContainer : LightPrimaryContainer;
+    private Color OnPrimaryContainer => IsDarkTheme ? DarkOnPrimaryContainer : LightOnPrimaryContainer;
+    private Color KeyForeground => IsDarkTheme ? DarkKeyForeground : LightKeyForeground;
+    private Color SecondaryForeground => IsDarkTheme ? DarkSecondaryForeground : LightSecondaryForeground;
+    private Color CandidateBackground => IsDarkTheme ? DarkCandidateBackground : LightCandidateBackground;
 
     public override void OnCreate()
     {
@@ -174,6 +203,8 @@ public sealed class MeltypeInputMethodService : InputMethodService
         {
             _keyboardOptions = AndroidSettingsStore.Load(this);
             _preferredTextLayer = AndroidSettingsStore.PreferredEnglish(this) ? InputLayer.Latin : InputLayer.Japanese;
+            if (_keyboardOptions.PersonalizedLearning)
+                _recentEmojis.AddRange(AndroidSettingsStore.LoadRecentEmojis(this));
             var baseDirectory = FilesDir?.AbsolutePath ?? CacheDir?.AbsolutePath ?? ".";
             var profileDirectory = Path.Combine(baseDirectory, "mozc-profile");
             var dataFile = ExtractMozcData(baseDirectory);
@@ -204,6 +235,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _nativeMozc = null;
         _converter = null;
         _session = null;
+        _candidateScroll = null;
         _candidateStrip = null;
         _keyArea = null;
         _modeButton = null;
@@ -212,10 +244,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _spaceButton = null;
         _enterButton = null;
         _backspaceButton = null;
-        DismissKeyPreview();
-        _keyPreviewText = null;
+        ResetKeyPreview();
         _backspaceRepeatRunnable?.Dispose();
         _backspaceRepeatRunnable = null;
+        _keyTypeface = null;
         _uiContext = null;
 
         base.OnDestroy();
@@ -229,7 +261,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
         {
             var previousOptions = _keyboardOptions;
             _keyboardOptions = AndroidSettingsStore.Load(this);
-            if (!_keyboardOptions.PersonalizedLearning) _recentEmojis.Clear();
+            if (!_keyboardOptions.PersonalizedLearning)
+                _recentEmojis.Clear();
+            else if (_recentEmojis.Count == 0)
+                _recentEmojis.AddRange(AndroidSettingsStore.LoadRecentEmojis(this));
             _inputPolicy = EditorInputPolicy.From((int)(attribute?.InputType ?? 0), (int)(attribute?.ImeOptions ?? 0));
             _selection.Reset(attribute?.InitialSelStart ?? -1, attribute?.InitialSelEnd ?? -1);
             _inputLayer = _inputPolicy.Numeric ? InputLayer.Numbers :
@@ -237,7 +272,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
                     ? InputLayer.Latin : InputLayer.Japanese;
             _direct = _inputLayer != InputLayer.Japanese;
             _emojiPanelOpen = false;
-            _shift = false;
+            _shift.Reset();
             DismissKeyPreview();
             CreateSession();
             _hasComposingText = false;
@@ -278,7 +313,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
             _session?.ResetInputContext();
             FinishEditorComposition();
             _keyboardOptions = updated;
-            if (!_keyboardOptions.PersonalizedLearning) _recentEmojis.Clear();
+            if (!_keyboardOptions.PersonalizedLearning)
+                _recentEmojis.Clear();
+            else if (_recentEmojis.Count == 0)
+                _recentEmojis.AddRange(AndroidSettingsStore.LoadRecentEmojis(this));
             CreateSession();
             SetInputView(BuildInputView());
         });
@@ -380,6 +418,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
     {
         var context = UiContext;
         _letterButtons.Clear();
+        ResetKeyPreview();
 
         var root = new LinearLayout(context)
         {
@@ -388,7 +427,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         root.SetBackgroundColor(KeyboardBackground);
         root.SetPadding(Dp(5), 0, Dp(5), Dp(38));
 
-        var candidateScroll = new HorizontalScrollView(context)
+        _candidateScroll = new HorizontalScrollView(context)
         {
             HorizontalScrollBarEnabled = false,
             FillViewport = true
@@ -399,10 +438,10 @@ public sealed class MeltypeInputMethodService : InputMethodService
         };
         _candidateStrip.SetGravity(GravityFlags.CenterVertical);
         _candidateStrip.SetPadding(Dp(2), 0, Dp(2), 0);
-        candidateScroll.AddView(_candidateStrip, new ViewGroup.LayoutParams(
+        _candidateScroll.AddView(_candidateStrip, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             ViewGroup.LayoutParams.MatchParent));
-        root.AddView(candidateScroll, new LinearLayout.LayoutParams(
+        root.AddView(_candidateScroll, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             Dp(52)));
 
@@ -694,6 +733,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
                 _recentEmojis.Insert(0, emoji);
                 if (_recentEmojis.Count > 24)
                     _recentEmojis.RemoveAt(_recentEmojis.Count - 1);
+                AndroidSettingsStore.SaveRecentEmojis(this, _recentEmojis);
             }
         }
         catch (Exception ex)
@@ -704,20 +744,61 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private string? ExtractMozcData(string baseDirectory)
     {
+        var path = Path.Combine(baseDirectory, "mozc.data");
+        var stampPath = Path.Combine(baseDirectory, "mozc.data.version");
+        var tempPath = Path.Combine(baseDirectory, "mozc.data.tmp");
         try
         {
-            var path = Path.Combine(baseDirectory, "mozc.data");
+            var stamp = GetAppInstallStamp();
+            if (stamp is not null &&
+                File.Exists(path) &&
+                new FileInfo(path).Length > 0 &&
+                File.Exists(stampPath) &&
+                string.Equals(File.ReadAllText(stampPath).Trim(), stamp, StringComparison.Ordinal))
+            {
+                return path;
+            }
+
             using var input = Assets?.Open("mozc.data");
             if (input is null)
                 return null;
 
-            using var output = File.Create(path);
-            input.CopyTo(output);
+            using (var output = File.Create(tempPath))
+                input.CopyTo(output);
+
+            File.Move(tempPath, path, overwrite: true);
+            if (stamp is not null)
+                File.WriteAllText(stampPath, stamp);
             return path;
         }
         catch (Exception ex)
         {
             Warn("ExtractMozcData", ex);
+            try
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch
+            {
+                // Best-effort cleanup of partial temp file.
+            }
+            return File.Exists(path) && new FileInfo(path).Length > 0 ? path : null;
+        }
+    }
+
+    private string? GetAppInstallStamp()
+    {
+        try
+        {
+            var sourceDir = ApplicationInfo?.SourceDir;
+            if (string.IsNullOrEmpty(sourceDir) || !File.Exists(sourceDir))
+                return null;
+            var info = new FileInfo(sourceDir);
+            return $"{sourceDir}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
+        }
+        catch
+        {
             return null;
         }
     }
@@ -747,6 +828,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             button.LongClick += (_, e) =>
             {
                 e.Handled = true;
+                DismissKeyPreview();
                 SafeRun("LongPressHint", () => HandleCharacter(hint[0]));
                 SafeHaptic(button);
             };
@@ -819,9 +901,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         button.SetAllCaps(false);
         button.SetMinWidth(0);
         button.SetMinHeight(0);
-        button.Typeface = global::Android.Graphics.Typeface.Create(
-            "sans-serif-medium",
-            global::Android.Graphics.TypefaceStyle.Normal);
+        button.Typeface = KeyTypeface;
         button.SetPadding(
             Dp(kind is KeyKind.Candidate or KeyKind.CandidateSelected ? 10 : 2),
             0,
@@ -929,14 +1009,11 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void HandleLetter(char raw)
     {
-        var c = _shift ? char.ToUpperInvariant(raw) : raw;
+        var c = _shift.IsActive ? char.ToUpperInvariant(raw) : raw;
         HandleCharacter(c);
 
-        if (_shift)
-        {
-            _shift = false;
+        if (_shift.ConsumeLetter())
             RefreshShiftVisual();
-        }
     }
 
     private void HandleCharacter(char c)
@@ -960,7 +1037,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
         var vk = char.IsAsciiLetter(c) ? char.ToUpperInvariant(c) : c <= 0x7f ? c : 0;
         var (before, after) = SurroundingText();
-        var result = session.HandleKey(vk, c, _shift, false, false, false, before, after);
+        var result = session.HandleKey(vk, c, _shift.IsActive, false, false, false, before, after);
         Apply(result);
 
         if (!result.Consumed)
@@ -1250,53 +1327,80 @@ public sealed class MeltypeInputMethodService : InputMethodService
     private void ShowKeyPreview(MaterialButton button)
     {
         if (_inputPolicy.Sensitive || !_keyboardOptions.KeyPreview) return;
-        DismissKeyPreview();
 
-        var label = new TextView(UiContext)
+        var dark = IsDarkTheme;
+        if (_keyPreviewPopup is null || _keyPreviewText is null || _keyPreviewDarkTheme != dark)
         {
-            Text = button.Text,
-            TextSize = 27,
-            Gravity = GravityFlags.Center,
-            Focusable = false,
-            FocusableInTouchMode = false
-        };
-        label.Typeface = global::Android.Graphics.Typeface.Create(
-            "sans-serif-medium",
-            global::Android.Graphics.TypefaceStyle.Normal);
-        label.SetTextColor(KeyForeground);
+            ResetKeyPreview();
+            var label = new TextView(UiContext)
+            {
+                TextSize = 27,
+                Gravity = GravityFlags.Center,
+                Focusable = false,
+                FocusableInTouchMode = false,
+                Typeface = KeyTypeface
+            };
+            label.SetTextColor(KeyForeground);
 
-        var background = new global::Android.Graphics.Drawables.GradientDrawable();
-        background.SetColor(SpecialKeyBackground);
-        background.SetCornerRadius(Dp(9));
-        label.Background = background;
+            var background = new global::Android.Graphics.Drawables.GradientDrawable();
+            background.SetColor(SpecialKeyBackground);
+            background.SetCornerRadius(Dp(9));
+            label.Background = background;
+
+            _keyPreviewText = label;
+            _keyPreviewPopup = new PopupWindow(label, Dp(46), Dp(58), false)
+            {
+                Focusable = false,
+                OutsideTouchable = false
+            };
+            _keyPreviewDarkTheme = dark;
+        }
 
         var width = Math.Max(button.Width, Dp(46));
         var height = Dp(58);
-        var popup = new PopupWindow(label, width, height, false)
-        {
-            Focusable = false,
-            OutsideTouchable = false
-        };
+        var offsetX = (button.Width - width) / 2;
+        var offsetY = -(button.Height + height + Dp(5));
 
-        _keyPreviewText = label;
-        _keyPreviewPopup = popup;
-        popup.ShowAsDropDown(button, 0, -(button.Height + height + Dp(5)));
+        _keyPreviewText.Text = button.Text;
+        _keyPreviewPopup.Width = width;
+        _keyPreviewPopup.Height = height;
+
+        if (_keyPreviewPopup.IsShowing)
+            _keyPreviewPopup.Update(button, offsetX, offsetY, width, height);
+        else
+            _keyPreviewPopup.ShowAsDropDown(button, offsetX, offsetY);
     }
 
     private void DismissKeyPreview()
     {
         try
         {
-            _keyPreviewPopup?.Dismiss();
+            if (_keyPreviewPopup is { IsShowing: true })
+                _keyPreviewPopup.Dismiss();
         }
         catch (Exception ex)
         {
             Warn("DismissKeyPreview", ex);
+            ResetKeyPreview();
+        }
+    }
+
+    private void ResetKeyPreview()
+    {
+        try
+        {
+            if (_keyPreviewPopup is { IsShowing: true })
+                _keyPreviewPopup.Dismiss();
+        }
+        catch (Exception ex)
+        {
+            Warn("ResetKeyPreview", ex);
         }
         finally
         {
             _keyPreviewPopup = null;
             _keyPreviewText = null;
+            _keyPreviewDarkTheme = null;
         }
     }
 
@@ -1362,7 +1466,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void ToggleShift()
     {
-        _shift = !_shift;
+        _shift.Tap(Environment.TickCount64);
         RefreshShiftVisual();
 
         if (!_hasComposingText)
@@ -1371,19 +1475,24 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
     private void RefreshShiftVisual()
     {
+        var active = _shift.IsActive;
         foreach (var (button, character) in _letterButtons)
-            button.Text = (_shift ? char.ToUpperInvariant(character) : character).ToString();
+            button.Text = (active ? char.ToUpperInvariant(character) : character).ToString();
 
         if (_shiftButton is null)
             return;
 
-        _shiftButton.BackgroundTintList = ColorStateList.ValueOf(
-            _shift ? PrimaryContainer : SpecialKeyBackground);
-        _shiftButton.SetTextColor(_shift ? OnPrimaryContainer : KeyForeground);
-        SetKeyIcon(
-            _shiftButton,
-            Resource.Drawable.ic_key_shift,
-            _shift ? OnPrimaryContainer : KeyForeground);
+        var (background, foreground, description) = _shift.Mode switch
+        {
+            ShiftMode.Locked => (Primary, OnPrimary, "Caps Lock オン"),
+            ShiftMode.Once => (PrimaryContainer, OnPrimaryContainer, "Shift オン"),
+            _ => (SpecialKeyBackground, KeyForeground, "Shift")
+        };
+
+        _shiftButton.BackgroundTintList = ColorStateList.ValueOf(background);
+        _shiftButton.SetTextColor(foreground);
+        _shiftButton.ContentDescription = description;
+        SetKeyIcon(_shiftButton, Resource.Drawable.ic_key_shift, foreground);
     }
 
     private void CycleInputLayer()
@@ -1417,7 +1526,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _emojiPanelOpen = false;
         _inputLayer = layer;
         _direct = layer != InputLayer.Japanese;
-        _shift = false;
+        _shift.Reset();
 
         if (_session is not null)
             _session.Direct = _direct;
@@ -1611,6 +1720,12 @@ public sealed class MeltypeInputMethodService : InputMethodService
             {
                 if (edit.DeleteBefore > 0)
                 {
+                    if (edit.Expect is { } expect)
+                    {
+                        var before = connection.GetTextBeforeCursor(edit.DeleteBefore, (GetTextFlags)0);
+                        if (before is not null && !string.Equals(before, expect, StringComparison.Ordinal))
+                            continue;
+                    }
                     _selection.DeleteBefore(edit.DeleteBefore);
                     connection.DeleteSurroundingText(edit.DeleteBefore, 0);
                 }
@@ -1624,7 +1739,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
             if (result.View is { } view)
             {
                 _selection.Replace(view.Text.Length, composing: view.Text.Length > 0);
-                connection.SetComposingText(view.Text, 1);
+                connection.SetComposingText(FormatComposingText(view), 1);
                 _hasComposingText = view.Text.Length > 0;
 
                 if (updateUi)
@@ -1668,6 +1783,36 @@ public sealed class MeltypeInputMethodService : InputMethodService
         _hasComposingText = false;
     }
 
+    private Java.Lang.ICharSequence FormatComposingText(CompositionView view)
+    {
+        var spannable = new SpannableString(view.Text);
+        if (view.Text.Length == 0)
+            return spannable;
+
+        spannable.SetSpan(
+            new global::Android.Text.Style.UnderlineSpan(),
+            0,
+            view.Text.Length,
+            SpanTypes.ExclusiveExclusive);
+
+        if (view.Converting &&
+            EditorText.SelectedClauseRange(view.Text, view.Clauses, view.SelectedClause) is { } range)
+        {
+            spannable.SetSpan(
+                new global::Android.Text.Style.BackgroundColorSpan(PrimaryContainer),
+                range.Start,
+                range.End,
+                SpanTypes.ExclusiveExclusive);
+            spannable.SetSpan(
+                new global::Android.Text.Style.ForegroundColorSpan(OnPrimaryContainer),
+                range.Start,
+                range.End,
+                SpanTypes.ExclusiveExclusive);
+        }
+
+        return spannable;
+    }
+
     private void ShowCandidates(CompositionView view)
     {
         if (_inputPolicy.Sensitive)
@@ -1685,6 +1830,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
 
             if (view.Converting && view.Candidates.Count > 0)
             {
+                MaterialButton? selectedButton = null;
                 for (var i = 0; i < view.Candidates.Count; i++)
                 {
                     var index = i;
@@ -1692,14 +1838,37 @@ public sealed class MeltypeInputMethodService : InputMethodService
                         ? KeyKind.CandidateSelected
                         : KeyKind.Candidate;
 
+                    var candidate = view.Candidates[i];
                     var button = CreateKey(
-                        view.Candidates[i],
+                        candidate,
                         () =>
                         {
                             if (_session is not null)
                                 Apply(_session.SelectCandidate(index));
                         },
                         kind);
+
+                    var note = view.Notes is not null && i < view.Notes.Count ? view.Notes[i] : null;
+                    if (!string.IsNullOrWhiteSpace(note))
+                    {
+                        var label = $"{candidate} {note}";
+                        var spannable = new SpannableString(label);
+                        var noteStart = candidate.Length + 1;
+                        spannable.SetSpan(
+                            new global::Android.Text.Style.RelativeSizeSpan(0.75f),
+                            noteStart,
+                            label.Length,
+                            SpanTypes.ExclusiveExclusive);
+                        spannable.SetSpan(
+                            new global::Android.Text.Style.ForegroundColorSpan(SecondaryForeground),
+                            noteStart,
+                            label.Length,
+                            SpanTypes.ExclusiveExclusive);
+                        button.TextFormatted = spannable;
+                    }
+
+                    if (i == view.SelectedIndex)
+                        selectedButton = button;
 
                     var parameters = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WrapContent,
@@ -1708,9 +1877,16 @@ public sealed class MeltypeInputMethodService : InputMethodService
                     strip.AddView(button, parameters);
                 }
 
+                if (selectedButton is not null)
+                {
+                    var target = selectedButton;
+                    strip.Post(new ActionRunnable(() => ScrollCandidateIntoView(target)));
+                }
+
                 return;
             }
 
+            _candidateScroll?.ScrollTo(0, 0);
             AddCandidateHint(
                 !string.IsNullOrWhiteSpace(view.Hint)
                     ? view.Hint
@@ -1719,6 +1895,23 @@ public sealed class MeltypeInputMethodService : InputMethodService
         catch (Exception ex)
         {
             Warn("ShowCandidates", ex);
+        }
+    }
+
+    private void ScrollCandidateIntoView(View target)
+    {
+        try
+        {
+            var scroll = _candidateScroll;
+            if (scroll is null || scroll.Width <= 0)
+                return;
+
+            var desired = target.Left - (scroll.Width - target.Width) / 2;
+            scroll.SmoothScrollTo(Math.Max(0, desired), 0);
+        }
+        catch (Exception ex)
+        {
+            Warn("ScrollCandidateIntoView", ex);
         }
     }
 
@@ -1731,6 +1924,7 @@ public sealed class MeltypeInputMethodService : InputMethodService
                 return;
 
             strip.RemoveAllViews();
+            _candidateScroll?.ScrollTo(0, 0);
 
             AddToolbarIcon(Resource.Drawable.ic_toolbar_apps, ShowInputMethodPicker, "入力方法を切り替える");
             AddToolbarSpacer();

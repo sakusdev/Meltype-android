@@ -15,5 +15,6 @@
     <Compile Include="..\Meltype.Android\EditorSelectionTracker.cs" Link="Android\EditorSelectionTracker.cs" />
     <Compile Include="..\Meltype.Android\EditorText.cs" Link="Android\EditorText.cs" />
     <Compile Include="..\Meltype.Android\KeyboardOptions.cs" Link="Android\KeyboardOptions.cs" />
+    <Compile Include="..\Meltype.Android\ShiftState.cs" Link="Android\ShiftState.cs" />
   </ItemGroup>
 </Project>

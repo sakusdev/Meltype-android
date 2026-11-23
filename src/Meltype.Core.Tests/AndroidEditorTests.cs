@@ -93,4 +93,43 @@ internal static class AndroidEditorTests
         Assert.True(tracker.Observe(1, 1, 0, 3), "cursor moved inside composing text");
         Assert.True(tracker.Observe(1, 1, -1, -1), "editor removed the composing span");
     }
+
+    [Test]
+    public static void SelectedClauseRange_ComputesExactSpanAndGuardsMismatches()
+    {
+        Assert.Equal<(int, int)?>((0, 3), EditorText.SelectedClauseRange("今日は晴れ", ["今日は", "晴れ"], 0));
+        Assert.Equal<(int, int)?>((3, 5), EditorText.SelectedClauseRange("今日は晴れ", ["今日は", "晴れ"], 1));
+        Assert.True(EditorText.SelectedClauseRange("今日は晴れ", ["今日は", "晴れ"], -1) is null, "negative clause index returns null");
+        Assert.True(EditorText.SelectedClauseRange("今日は晴れ", ["今日は", "晴れ"], 2) is null, "out-of-range clause index returns null");
+        Assert.True(EditorText.SelectedClauseRange("今日は晴れ", null, 0) is null, "null clauses returns null");
+        Assert.True(EditorText.SelectedClauseRange("今日は雨", ["今日は", "晴れ"], 1) is null,
+            "mismatched clause text must not return an invalid highlight span");
+    }
+
+    [Test]
+    public static void ShiftState_SupportsSingleShotAndDoubleTapCapsLock()
+    {
+        var shift = new ShiftState();
+        Assert.Equal(ShiftMode.Off, shift.Mode);
+
+        shift.Tap(1000);
+        Assert.Equal(ShiftMode.Once, shift.Mode);
+        Assert.True(shift.IsActive && !shift.IsLocked, "single tap enables one-shot Shift");
+        Assert.True(shift.ConsumeLetter(), "single-shot shift clears after one letter");
+        Assert.Equal(ShiftMode.Off, shift.Mode);
+
+        shift.Tap(2000);
+        shift.Tap(2200);
+        Assert.Equal(ShiftMode.Locked, shift.Mode);
+        Assert.True(shift.IsActive && shift.IsLocked, "double tap enables Caps Lock");
+        Assert.True(!shift.ConsumeLetter(), "Caps Lock stays active after letters");
+        Assert.Equal(ShiftMode.Locked, shift.Mode);
+
+        shift.Tap(3000);
+        Assert.Equal(ShiftMode.Off, shift.Mode);
+
+        shift.Tap(4000);
+        shift.Tap(4500);
+        Assert.Equal(ShiftMode.Off, shift.Mode, "slow second tap turns Shift off instead of locking");
+    }
 }

@@ -9,6 +9,8 @@ namespace Meltype.Android;
 internal static class AndroidSettingsStore
 {
     private const string PreferenceFile = "keyboard-settings";
+    private const string RecentEmojisKey = "RecentEmojis";
+    private const int MaxRecentEmojis = 24;
 
     public static KeyboardOptions Load(Context context)
     {
@@ -81,6 +83,29 @@ internal static class AndroidSettingsStore
     {
         using var editor = context.GetSharedPreferences(PreferenceFile, FileCreationMode.Private)?.Edit();
         editor?.PutBoolean("LastPreferredEnglish", value);
+        editor?.Apply();
+    }
+
+    public static List<string> LoadRecentEmojis(Context context)
+    {
+        try
+        {
+            var raw = context.GetSharedPreferences(PreferenceFile, FileCreationMode.Private)
+                ?.GetString(RecentEmojisKey, null);
+            if (string.IsNullOrEmpty(raw))
+                return [];
+            return raw.Split('\t', StringSplitOptions.RemoveEmptyEntries)
+                .Distinct(StringComparer.Ordinal)
+                .Take(MaxRecentEmojis)
+                .ToList();
+        }
+        catch (Java.Lang.ClassCastException) { return []; }
+    }
+
+    public static void SaveRecentEmojis(Context context, IReadOnlyList<string> emojis)
+    {
+        using var editor = context.GetSharedPreferences(PreferenceFile, FileCreationMode.Private)?.Edit();
+        editor?.PutString(RecentEmojisKey, string.Join('\t', emojis.Take(MaxRecentEmojis)));
         editor?.Apply();
     }
 }
